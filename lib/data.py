@@ -19,7 +19,7 @@ from .models import (
 
 # ---------------- FALLBACK PATHS ----------------
 MODEL_FALLBACKS: dict[str, str | None] = {
-    "fitds_stages":      "../app/data/IPSC.csv",
+    "fitds_stages":      "../data/IPSC.csv",
     "fitds_match_stats": None,  # derived (no file)
 }
 

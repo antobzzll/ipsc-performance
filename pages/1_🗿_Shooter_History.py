@@ -1,5 +1,5 @@
 import streamlit as st
-from lib.utils import get_page_title, init_global_select
+from lib.utils import get_page_title
 from lib.data import get_data
 from lib.charts import match_count
 

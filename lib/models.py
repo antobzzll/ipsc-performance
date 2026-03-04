@@ -15,30 +15,30 @@ def load_fitds_stages_core(path: str) -> pd.DataFrame:
     df['hit_factor'] = round(df['pts'] / df['time'], 4)
     # df['hf_check'] = df['hit_factor'] - df['factor']
     
-    df['div_pts_perc'] = df.groupby(['match_name', 'div', 'stg'])['pts'].transform(lambda x: (x / x.max()))
-    df['div_first_time'] = df.groupby(['match_name', 'div', 'stg'])['time'].transform(lambda x: x[df['hit_factor'] > 0].min() if any(df['hit_factor'] > 0) else None)
+    df['div_pts_perc'] = df.groupby(['match_name', 'shooter_div', 'stg_n'])['pts'].transform(lambda x: (x / x.max()))
+    df['div_first_time'] = df.groupby(['match_name', 'shooter_div', 'stg_n'])['time'].transform(lambda x: x[df['hit_factor'] > 0].min() if any(df['hit_factor'] > 0) else None)
     df['div_time_perc'] = df['div_first_time'] / df['time']
-    df['div_factor_perc'] = df.groupby(['match_name', 'div', 'stg'])['hit_factor'].transform(lambda x: (x / x.max()))
-    df['div_factor_standing'] = df.groupby(['match_name', 'div', 'stg'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
+    df['div_factor_perc'] = df.groupby(['match_name', 'shooter_div', 'stg_n'])['hit_factor'].transform(lambda x: (x / x.max()))
+    df['div_factor_standing'] = df.groupby(['match_name', 'shooter_div', 'stg_n'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
     
-    df['cls_pts_perc'] = df.groupby(['match_name', 'div', 'class', 'stg'])['pts'].transform(lambda x: (x / x.max()))
-    df['cls_first_time'] = df.groupby(['match_name', 'div', 'class', 'stg'])['time'].transform(lambda x: x[df['hit_factor'] > 0].min() if any(df['hit_factor'] > 0) else None)
+    df['cls_pts_perc'] = df.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['pts'].transform(lambda x: (x / x.max()))
+    df['cls_first_time'] = df.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['time'].transform(lambda x: x[df['hit_factor'] > 0].min() if any(df['hit_factor'] > 0) else None)
     df['cls_time_perc'] = df['cls_first_time'] / df['time']
-    df['cls_factor_perc'] = df.groupby(['match_name', 'div', 'class', 'stg'])['hit_factor'].transform(lambda x: (x / x.max()))
-    df['cls_factor_standing'] = df.groupby(['match_name', 'div', 'class', 'stg'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
+    df['cls_factor_perc'] = df.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['hit_factor'].transform(lambda x: (x / x.max()))
+    df['cls_factor_standing'] = df.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
     
-    match_abcd = df[df['class'].isin(['A', 'B', 'C', 'D'])].copy()
-    df['div_pts_perc_abcd'] = match_abcd.groupby(['match_name', 'div', 'stg'])['pts'].transform(lambda x: (x / x.max()))
-    df['div_first_time_abcd'] = match_abcd.groupby(['match_name', 'div', 'stg'])['time'].transform(lambda x: x[match_abcd['hit_factor'] > 0].min() if any(match_abcd['hit_factor'] > 0) else None)
+    match_abcd = df[df['shooter_class'].isin(['A', 'B', 'C', 'D'])].copy()
+    df['div_pts_perc_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'stg_n'])['pts'].transform(lambda x: (x / x.max()))
+    df['div_first_time_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'stg_n'])['time'].transform(lambda x: x[match_abcd['hit_factor'] > 0].min() if any(match_abcd['hit_factor'] > 0) else None)
     df['div_time_perc_abcd'] = match_abcd['div_first_time'] / match_abcd['time']
-    df['div_factor_perc_abcd'] = match_abcd.groupby(['match_name', 'div', 'stg'])['hit_factor'].transform(lambda x: (x / x.max()))
-    df['div_factor_standing_abcd'] = match_abcd.groupby(['match_name', 'div', 'stg'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
+    df['div_factor_perc_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'stg_n'])['hit_factor'].transform(lambda x: (x / x.max()))
+    df['div_factor_standing_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'stg_n'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
     
-    df['cls_pts_perc_abcd'] = match_abcd.groupby(['match_name', 'div', 'class', 'stg'])['pts'].transform(lambda x: (x / x.max()))
-    df['cls_first_time_abcd'] = match_abcd.groupby(['match_name', 'div', 'class', 'stg'])['time'].transform(lambda x: x[match_abcd['hit_factor'] > 0].min() if any(match_abcd['hit_factor'] > 0) else None)
+    df['cls_pts_perc_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['pts'].transform(lambda x: (x / x.max()))
+    df['cls_first_time_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['time'].transform(lambda x: x[match_abcd['hit_factor'] > 0].min() if any(match_abcd['hit_factor'] > 0) else None)
     df['cls_time_perc_abcd'] = match_abcd['cls_first_time'] / match_abcd['time']
-    df['cls_factor_perc_abcd'] = match_abcd.groupby(['match_name', 'div', 'class', 'stg'])['hit_factor'].transform(lambda x: (x / x.max()))
-    df['cls_factor_standing_abcd'] = match_abcd.groupby(['match_name', 'div', 'class', 'stg'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
+    df['cls_factor_perc_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['hit_factor'].transform(lambda x: (x / x.max()))
+    df['cls_factor_standing_abcd'] = match_abcd.groupby(['match_name', 'shooter_div', 'shooter_class', 'stg_n'])['hit_factor'].transform(lambda x: x.rank(method='first', ascending=False))
 
     # # ----- FIELD (match-level) CLASS BANDS -----
     # match_stats = (
@@ -107,16 +107,16 @@ def class_predict(
 ) -> pd.DataFrame:
     """
     Required columns in `stages`:
-      ['match_name','div','class','shooter','div_factor_perc']
+      ['match_name','shooter_div','shooter_class','shooter_name','div_factor_perc']
 
     Returns one row per (shooter, match_name, div) with:
-      ['shooter','match_name','div','n_stages','sh_median',
+      ['shooter_name','match_name','shooter_div','n_stages','sh_median',
        'pred_class','relation','dist_to_class_median',
        'q1','class_median','q3','n_in_class',
        'robust_z_class',
        'sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']
     """
-    needed = {'match_name','div','class','shooter','div_factor_perc'}
+    needed = {'match_name','shooter_div','shooter_class','shooter_name','div_factor_perc'}
     miss = needed - set(stages.columns)
     if miss:
         raise KeyError(f"Missing columns: {sorted(miss)}")
@@ -126,14 +126,14 @@ def class_predict(
 
     # --- Shooter summary per (shooter, match, div)
     shooter_sum = (
-        df.groupby(['shooter','match_name','div'])['div_factor_perc']
+        df.groupby(['shooter_name','match_name','shooter_div'])['div_factor_perc']
           .agg(n_stages='count', sh_median='median')
           .reset_index()
     )
     shooter_sum = shooter_sum[shooter_sum['n_stages'] >= min_stage_n].copy()
     if shooter_sum.empty:
         return pd.DataFrame(columns=[
-            'shooter','match_name','div','n_stages','sh_median',
+            'shooter_name','match_name','shooter_div','n_stages','sh_median',
             'pred_class','relation','dist_to_class_median',
             'q1','class_median','q3','n_in_class',
             'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent'
@@ -141,7 +141,7 @@ def class_predict(
 
     # --- Class bands per (match, div, class)
     class_bands = (
-        df.groupby(['match_name','div','class'])['div_factor_perc']
+        df.groupby(['match_name','shooter_div','shooter_class'])['div_factor_perc']
           .agg(n_in_class='count',
                q1=lambda s: s.quantile(0.25),
                class_median='median',
@@ -157,7 +157,7 @@ def class_predict(
         return out
 
     # --- Join candidates (all classes in same match/div for each shooter summary)
-    cand = shooter_sum.merge(class_bands, on=['match_name','div'], how='left')
+    cand = shooter_sum.merge(class_bands, on=['match_name','shooter_div'], how='left')
     cand = cand[cand['q1'].notna()].copy()
     if cand.empty:
         out = shooter_sum.copy()
@@ -174,8 +174,8 @@ def class_predict(
     cand['_within_rank'] = np.where(cand['within_iqr'], 0, 1)
 
     picked = (
-        cand.sort_values(['shooter','match_name','div','_within_rank','dist_to_class_median'])
-            .groupby(['shooter','match_name','div'], as_index=False)
+        cand.sort_values(['shooter_name','match_name','shooter_div','_within_rank','dist_to_class_median'])
+            .groupby(['shooter_name','match_name','shooter_div'], as_index=False)
             .first()
     )
 
@@ -197,7 +197,7 @@ def class_predict(
     # --- Consistency: shooter IQR (only if enough stages)
     # compute per (shooter, match, div)
     shooter_iqr = (
-        df.groupby(['shooter','match_name','div'])['div_factor_perc']
+        df.groupby(['shooter_name','match_name','shooter_div'])['div_factor_perc']
           .agg(n='count',
                sh_q1=lambda s: s.quantile(0.25),
                sh_q3=lambda s: s.quantile(0.75))
@@ -207,7 +207,7 @@ def class_predict(
     shooter_iqr['sh_iqr'] = shooter_iqr['sh_q3'] - shooter_iqr['sh_q1']
     shooter_iqr = shooter_iqr.drop(columns='n')
 
-    out = picked.merge(shooter_iqr, on=['shooter','match_name','div'], how='left')
+    out = picked.merge(shooter_iqr, on=['shooter_name','match_name','shooter_div'], how='left')
 
     # consistency_cover = proportion of shooter IQR inside chosen class IQR
     # = length( intersection( [sh_q1, sh_q3], [q1, q3] ) ) / max(sh_iqr, eps)
@@ -219,8 +219,8 @@ def class_predict(
                                  True, False)
 
     # Final tidy
-    out = out.rename(columns={'class': 'pred_class'})
-    cols = ['shooter','match_name','div','n_stages','sh_median',
+    out = out.rename(columns={'shooter_class': 'pred_class'})
+    cols = ['shooter_name','match_name','shooter_div','n_stages','sh_median',
             'pred_class','relation','dist_to_class_median',
             'q1','class_median','q3','n_in_class',
             'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']
@@ -235,15 +235,15 @@ def class_predict_per_stage(
     Stage-level class prediction.
 
     Required columns in `stages`:
-      ['match_name','div','class','shooter','div_factor_perc']
-    Optional: 'stg' (stage id/number). If present, it will be kept in the output.
+      ['match_name','shooter_div','shooter_class','shooter_name','div_factor_perc']
+    Optional: 'stg_n' (stage id/number). If present, it will be kept in the output.
 
     Returns one row per input stage with:
-      ['shooter','match_name','div',('stg' if present),'div_factor_perc',
+      ['shooter_name','match_name','shooter_div',('stg_n' if present),'div_factor_perc',
        'orig_class','pred_class','relation','dist_to_class_median',
        'q1','class_median','q3','n_in_class','robust_z_class']
     """
-    needed = {'match_name','div','class','shooter','div_factor_perc'}
+    needed = {'match_name','shooter_div','shooter_class','shooter_name','div_factor_perc'}
     miss = needed - set(stages.columns)
     if miss:
         raise KeyError(f"Missing columns: {sorted(miss)}")
@@ -251,93 +251,103 @@ def class_predict_per_stage(
     df = stages.copy()
     df['div_factor_perc'] = pd.to_numeric(df['div_factor_perc'], errors='coerce')
 
-    # Build class bands per (match, div, class)
+    # ---- Base columns in the final output (order matters) ----
+    base_cols = ['shooter_name', 'match_name', 'shooter_div']
+    if 'stg_n' in df.columns:
+        base_cols.append('stg_n')
+    base_cols += ['div_factor_perc', 'orig_class']
+
+    # ---- Build class bands per (match, div, class) ----
     class_bands = (
-        df.groupby(['match_name','div','class'])['div_factor_perc']
-          .agg(n_in_class='count',
-               q1=lambda s: s.quantile(0.25),
-               class_median='median',
-               q3=lambda s: s.quantile(0.75))
+        df.groupby(['match_name', 'shooter_div', 'shooter_class'])['div_factor_perc']
+          .agg(
+              n_in_class='count',
+              q1=lambda s: s.quantile(0.25),
+              class_median='median',
+              q3=lambda s: s.quantile(0.75)
+          )
           .reset_index()
     )
     class_bands = class_bands[class_bands['n_in_class'] >= min_class_n].copy()
 
-    # Base columns to return
-    base_cols = ['shooter','match_name','div','div_factor_perc','orig_class']
-    if 'stg' in df.columns:
-        base_cols.insert(3, 'stg')  # ... div, stg, div_factor_perc, orig_class
-
+    # If no valid class bands, return df with NaNs for prediction fields
     if class_bands.empty:
         out = df.copy()
-        out = out.rename(columns={'class': 'orig_class'})
+        out = out.rename(columns={'shooter_class': 'orig_class'})
         out = out[ [c for c in base_cols if c in out.columns] ]
         out[['pred_class','relation','dist_to_class_median',
              'q1','class_median','q3','n_in_class','robust_z_class']] = np.nan
         return out
 
-    # Row id to pick best candidate per stage row
+    # ---- Add stable row id (so we can pick best band per original stage row) ----
     df = df.reset_index(drop=False).rename(columns={'index': '__rowid'})
+    df = df.rename(columns={'shooter_class': 'orig_class'})
 
-    # Merge with explicit suffixes to avoid class_x/class_y confusion
-    cand = df.merge(class_bands,
-                    on=['match_name','div'],
-                    how='left',
-                    suffixes=('_row','_band'))
+    # ---- Merge candidates: each stage row gets all class bands for its match/div ----
+    # Keep band class under a dedicated name to avoid confusion
+    bands = class_bands.rename(columns={'shooter_class': 'band_class'})
 
-    # Rename the original and band class columns
-    if 'class_row' in cand.columns:
-        cand = cand.rename(columns={'class_row': 'orig_class'})
-    else:
-        cand = cand.rename(columns={'class': 'orig_class'})  # fallback if suffixing didn't occur
+    cand = df.merge(
+        bands,
+        on=['match_name', 'shooter_div'],
+        how='left'
+    )
 
-    if 'class_band' in cand.columns:
-        cand = cand.rename(columns={'class_band': 'pred_class'})
-    else:
-        # If suffixing didn’t occur for some reason, assume band class is the remaining 'class'
-        cand = cand.rename(columns={'class': 'pred_class'})
-
-    # Drop rows where we have no valid band stats
+    # Drop rows where no band stats exist (should be rare but safe)
     cand = cand[cand['q1'].notna()].copy()
     if cand.empty:
-        out = df.rename(columns={'class': 'orig_class'})
+        out = df.copy()
         out = out[ [c for c in base_cols + ['__rowid'] if c in out.columns] ]
         out[['pred_class','relation','dist_to_class_median',
              'q1','class_median','q3','n_in_class','robust_z_class']] = np.nan
         return out.drop(columns='__rowid')
 
-    # Signals vs each candidate band
+    # ---- Signals vs each candidate band ----
     perf = cand['div_factor_perc']
     cand['within_iqr'] = (perf >= cand['q1']) & (perf <= cand['q3'])
     cand['dist_to_class_median'] = (perf - cand['class_median']).abs()
     cand['_within_rank'] = np.where(cand['within_iqr'], 0, 1)
 
-    # Pick best band per stage: inside-IQR first, then closest median
+    # ---- Pick best band per stage: inside-IQR first, then closest median ----
     picked = (
-        cand.sort_values(['__rowid','_within_rank','dist_to_class_median'])
+        cand.sort_values(['__rowid', '_within_rank', 'dist_to_class_median'])
             .groupby('__rowid', as_index=False)
             .first()
     )
 
-    # Relation for the stage value vs chosen band
+    # ---- Rename chosen band class to pred_class ----
+    picked = picked.rename(columns={'band_class': 'pred_class'})
+
+    # ---- Relation for the stage value vs chosen band ----
     def _relation(row):
         val = row['div_factor_perc']
+        if pd.isna(val) or pd.isna(row['q1']) or pd.isna(row['q3']):
+            return np.nan
         if val < row['q1']:
             return 'below'
         if val > row['q3']:
             return 'above'
         return 'within'
+
     picked['relation'] = picked.apply(_relation, axis=1)
 
-    # Robust z for the stage value vs chosen band
+    # ---- Robust z for the stage value vs chosen band ----
     iqr = (picked['q3'] - picked['q1']).replace(0, np.nan)
     robust_scale = iqr / 1.349
     picked['robust_z_class'] = (picked['div_factor_perc'] - picked['class_median']) / robust_scale
 
-    # Final tidy
-    keep = [c for c in base_cols if c in picked.columns] + [
-        'pred_class','relation','dist_to_class_median',
-        'q1','class_median','q3','n_in_class','robust_z_class'
+    # ---- Final tidy + strict keep ----
+    keep = base_cols + [
+        'pred_class', 'relation', 'dist_to_class_median',
+        'q1', 'class_median', 'q3', 'n_in_class', 'robust_z_class'
     ]
-    out = picked[keep].copy()
 
+    missing = [c for c in keep if c not in picked.columns]
+    if missing:
+        raise KeyError(
+            f"class_predict_per_stage: missing columns in output: {missing}. "
+            f"Available: {list(picked.columns)}"
+        )
+
+    out = picked[keep].copy()
     return out

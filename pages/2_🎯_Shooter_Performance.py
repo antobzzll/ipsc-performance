@@ -185,7 +185,7 @@ norm_header = "Division" if norm == "div" else "Class"
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
 
 # Shooter
-shooters = sorted(stages["shooter"].dropna().unique().tolist())
+shooters = sorted(stages["shooter_name"].dropna().unique().tolist())
 default_shooter = (
     "BUZZELLI, ANTONIO" if "BUZZELLI, ANTONIO" in shooters else (shooters[0] if shooters else None)
 )
@@ -202,7 +202,7 @@ st.session_state.selected_shooter = c1.selectbox(
     key="dd_shooter",
     help=_("shooter_help")
 )
-sh_stages = stages[(stages["shooter"] == st.session_state.selected_shooter)].reset_index().copy()
+sh_stages = stages[(stages["shooter_name"] == st.session_state.selected_shooter)].reset_index().copy()
 geom_perf_mean = aggregate_shooter_performance(sh_stages, stage_pct_col=f'{norm}_factor_perc')
 c4.metric(_("avg_performance", scope=norm_header), f"{geom_perf_mean['G']:.0%}")
 st.write("---")
@@ -278,13 +278,42 @@ if df.empty:
     st.warning(_("no_data"))
     st.stop()
 
-stage_n_preds = df.merge(get_data('class_predict'), on=['match_name','div','shooter'], how='left')
+stage_n_preds = df.merge(get_data('class_predict'), on=['match_name','shooter_div','shooter_name'], how='left')
 preds = get_data('class_predict_per_stage')
 
-keys = ['match_name', 'div', 'shooter', 'stg']  # include stg!
-cols = keys + ['pred_class','relation','robust_z_class','q1','class_median','q3','n_in_class']
+# --- FIX: align stage key column names + ensure uniqueness for merge ---
 
-stage_class_preds = df.merge(preds[cols], on=keys, how='left', validate='one_to_one')
+# 1) Ensure both df and preds use the same stage id column name: stg_n
+#    (some pipelines use "stg" instead of "stg_n")
+if "stg_n" not in df.columns and "stg" in df.columns:
+    df = df.rename(columns={"stg": "stg_n"})
+
+if "stg_n" not in preds.columns and "stg" in preds.columns:
+    preds = preds.rename(columns={"stg": "stg_n"})
+
+# Optional: enforce type consistency (prevents silent non-matches)
+if "stg_n" in df.columns and "stg_n" in preds.columns:
+    df["stg_n"] = pd.to_numeric(df["stg_n"], errors="coerce").astype("Int64")
+    preds["stg_n"] = pd.to_numeric(preds["stg_n"], errors="coerce").astype("Int64")
+
+# 2) Define merge keys (now consistent)
+keys = ["match_name", "shooter_div", "shooter_name", "stg_n"]
+cols = keys + ["pred_class", "relation", "robust_z_class", "q1", "class_median", "q3", "n_in_class"]
+
+# 3) Guarantee the RIGHT side is unique on keys.
+#    If duplicates exist, keep the first (or you can aggregate if you prefer).
+dup_mask = preds.duplicated(subset=keys, keep=False)
+if dup_mask.any():
+    # show a small diagnostic in Streamlit so you can trace upstream if needed
+    st.warning(
+        f"class_predict_per_stage has {dup_mask.sum()} duplicated rows on keys {keys}. "
+        "Keeping the first occurrence per key."
+    )
+    preds = preds.sort_values(keys).drop_duplicates(subset=keys, keep="first")
+
+# 4) Now merge (left is allowed to have duplicates across keys if df has multiple rows per stage;
+#    but you said you want one-to-one, so we keep validate here after fixing right side)
+stage_class_preds = df.merge(preds[cols], on=keys, how="left", validate="many_to_one")
 
 # ========= CHARTS =========
 st.subheader(_("stage_perf_distr"))

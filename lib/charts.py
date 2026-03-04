@@ -121,7 +121,7 @@ def stage_scatter(
     y = f"{norm}_pts_perc"
     x = f"{norm}_time_perc"
 
-    needed = ["match_date", y, x, "match_name", "stg", f"{norm}_factor_perc", "pred_class"]
+    needed = ["match_date", y, x, "match_name", "stg_n", f"{norm}_factor_perc", "pred_class"]
     missing = [c for c in needed if c not in df.columns]
     if missing:
         st.info(f"Missing required columns for scatter: {missing}")
@@ -197,7 +197,7 @@ def stage_scatter(
                         color=color_map[match],
                     ),
                     name=match,
-                    text=match_df["stg"],
+                    text=match_df["stg_n"],
                     customdata=customdata,
                     hovertemplate=(
                         "Match: %{data.name}<br>"
@@ -346,7 +346,7 @@ def class_bubble(
     show_ref: bool = True,
 ):
     needed = {
-        "shooter", "match_name", "match_date", "div",
+        "shooter_name", "match_name", "match_date", "shooter_div",
         "pred_class", "relation", "sh_median", "consistency_cover"
     }
     miss = needed - set(df.columns)
@@ -354,7 +354,7 @@ def class_bubble(
         st.info(f"Bubble map needs columns: {sorted(miss)}")
         return
 
-    d = df.loc[df["shooter"] == shooter].copy()
+    d = df.loc[df["shooter_name"] == shooter].copy()
     if d.empty:
         st.info("No data for the specified shooter.")
         return
@@ -454,7 +454,7 @@ def class_bubble(
                 ),
                 name=_label_rel(rel),
                 showlegend=show_legend,
-                customdata=subset[["match_name", "div", "pred_class", "relation", "sh_median", "consistency_cover"]],
+                customdata=subset[["match_name", "shooter_div", "pred_class", "relation", "sh_median", "consistency_cover"]],
                 hovertemplate=(
                     "Match: %{customdata[0]}<br>"
                     "Division: %{customdata[1]}<br>"

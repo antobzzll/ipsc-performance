@@ -4,7 +4,7 @@ import streamlit as st
 from lib.data import get_data
 from lib.stats import aggregate_shooter_performance
 from lib.utils import get_page_title
-from lib.charts import stage_distr, stage_scatter, class_bubble
+from lib.charts import stage_distr, stage_scatter
 
 st.set_page_config(page_title="Shooter Performance", layout="wide")
 
@@ -21,6 +21,7 @@ LANG = {
         "filters_header": "Filters",
         "shooter": "Shooter",
         "shooter_help": "Select shooter to analyze",
+        "select_shooter_first": "Select a shooter to display the analysis.",
         "avg_performance": "AVG {scope} Performance",
         "division": "Division",
         "division_help": "Filter by division (e.g., Production / Open / Standard)",
@@ -90,6 +91,7 @@ LANG = {
         "filters_header": "Filtri",
         "shooter": "Tiratore",
         "shooter_help": "Seleziona il tiratore da analizzare",
+        "select_shooter_first": "Seleziona un tiratore per visualizzare l’analisi.",
         "avg_performance": "Media Prestazioni {scope}",
         "division": "Divisione",
         "division_help": "Filtra per divisione (es. Production / Open / Standard)",
@@ -154,7 +156,7 @@ def t(key: str, lang: str, **kwargs) -> str:
 
 # ========= SIDEBAR: LANGUAGE (persistente) =========
 if "language" not in st.session_state:
-    st.session_state.language = "it"  # default: Italiano
+    st.session_state.language = "it"
 
 language_options = list(LANG.keys())
 language = st.sidebar.selectbox(
@@ -167,7 +169,7 @@ st.session_state.language = language
 _ = lambda k, **kw: t(k, st.session_state.language, **kw)
 
 # ========= DATA =========
-stages = get_data('fitds_stages')
+stages = get_data("fitds_stages").copy()
 
 # ========= FILTERS =========
 st.sidebar.header(_("data_header"), help=_("data_header_help"))
@@ -175,40 +177,47 @@ normalization = st.sidebar.selectbox(
     _("normalization"),
     [_("per_division"), _("per_class")],
     index=0,
-    key='dd_normalization',
+    key="dd_normalization",
     help=_("norm_help")
 )
-norm = 'div' if normalization == _("per_division") else 'cls'
+norm = "div" if normalization == _("per_division") else "cls"
 norm_header = "Division" if norm == "div" else "Class"
 
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
 
-# Shooter
-shooters = sorted(stages["shooter_name"].dropna().unique().tolist())
-default_shooter = (
-    "BUZZELLI, ANTONIO" if "BUZZELLI, ANTONIO" in shooters else (shooters[0] if shooters else None)
-)
+shooters = ["-- Select shooter --"] + sorted(stages["shooter_name"].dropna().unique().tolist())
+default_shooter = "-- Select shooter --"
+
 if "selected_shooter" not in st.session_state:
     st.session_state.selected_shooter = default_shooter
 
 st.title(f"{get_page_title()}")
 
-c1, c2, c3, c4 = st.columns(4, vertical_alignment='bottom')
+c1, c2, c3, c4 = st.columns(4, vertical_alignment="bottom")
 st.session_state.selected_shooter = c1.selectbox(
     _("shooter"),
     shooters,
-    index=shooters.index(st.session_state.selected_shooter) if shooters and st.session_state.selected_shooter in shooters else 0,
+    index=shooters.index(st.session_state.selected_shooter)
+    if st.session_state.selected_shooter in shooters else 0,
     key="dd_shooter",
     help=_("shooter_help")
 )
 
-sh_stages = stages[(stages["shooter_name"] == st.session_state.selected_shooter)].reset_index().copy()
+# Stop page if no shooter is selected
+if st.session_state.selected_shooter == "-- Select shooter --":
+    st.info(_("select_shooter_first"))
+    st.stop()
 
-# === add shooter_div filter "as match_year": derive if missing + multiselect + apply ===
-# prefer existing shooter_div; if not present, derive from 'div' (common naming in your DF)
-if "shooter_div" not in sh_stages.columns:
-    if "div" in sh_stages.columns:
-        sh_stages["shooter_div"] = sh_stages["div"]
+# ========= SHOOTER DATA =========
+sh_stages = (
+    stages[stages["shooter_name"] == st.session_state.selected_shooter]
+    .reset_index(drop=True)
+    .copy()
+)
+
+# === add shooter_div filter ===
+if "shooter_div" not in sh_stages.columns and "div" in sh_stages.columns:
+    sh_stages["shooter_div"] = sh_stages["div"]
 
 if "shooter_div" in sh_stages.columns:
     divs_available = sorted(sh_stages["shooter_div"].dropna().unique().tolist())
@@ -227,13 +236,13 @@ else:
     shooter_div_filter = []
 
 # recompute metric AFTER filters are applied
-geom_perf_mean = aggregate_shooter_performance(sh_stages, stage_pct_col=f'{norm}_factor_perc')
+geom_perf_mean = aggregate_shooter_performance(sh_stages, stage_pct_col=f"{norm}_factor_perc")
 c4.metric(_("avg_performance", scope=norm_header), f"{geom_perf_mean['G']:.0%}")
 st.write("---")
 
 c1, c2 = st.sidebar.columns(2)
 
-# Division (UI-only filter for 'div' if present; keep for backward compatibility)
+# Division
 if "div" in sh_stages.columns:
     div_available = sorted(sh_stages["div"].dropna().unique().tolist())
     div_filter = c1.selectbox(_("division"), div_available, key="dd_div", help=_("division_help"))
@@ -249,11 +258,10 @@ if "power_factor" in sh_stages.columns:
 else:
     power_factor_filter = []
 
-# Match Year (as other filters)
-if "match_year" not in sh_stages.columns:
-    if "match_date" in sh_stages.columns:
-        sh_stages["match_date"] = pd.to_datetime(sh_stages["match_date"], errors="coerce")
-        sh_stages["match_year"] = sh_stages["match_date"].dt.year.astype("Int64")
+# Match Year
+if "match_year" not in sh_stages.columns and "match_date" in sh_stages.columns:
+    sh_stages["match_date"] = pd.to_datetime(sh_stages["match_date"], errors="coerce")
+    sh_stages["match_year"] = sh_stages["match_date"].dt.year.astype("Int64")
 
 if "match_year" in sh_stages.columns:
     year_available = sorted(sh_stages["match_year"].dropna().unique().tolist())
@@ -286,13 +294,17 @@ else:
     match_level_filter = []
     df_lvl = sh_stages.copy()
 
-# Matches (depends on levels + pf + div + year)
-matches_available = (
-    df_lvl[["match_name", "match_date"]]
-    .drop_duplicates()
-    .sort_values("match_date")["match_name"]
-    .tolist()
-)
+# Matches
+if "match_date" in df_lvl.columns:
+    matches_available = (
+        df_lvl[["match_name", "match_date"]]
+        .drop_duplicates()
+        .sort_values("match_date")["match_name"]
+        .tolist()
+    )
+else:
+    matches_available = sorted(df_lvl["match_name"].dropna().unique().tolist())
+
 match_filter = st.sidebar.multiselect(
     _("matches"),
     matches_available,
@@ -310,12 +322,17 @@ show_ref = st.sidebar.checkbox(_("ref_lines"), value=True, key="dd_ref", help=_(
 df = df_lvl.copy()
 if match_filter:
     df = df[df["match_name"].isin(match_filter)]
+
 if df.empty:
     st.warning(_("no_data"))
     st.stop()
 
-stage_n_preds = df.merge(get_data('class_predict'), on=['match_name','shooter_div','shooter_name'], how='left')
-preds = get_data('class_predict_per_stage')
+stage_n_preds = df.merge(
+    get_data("class_predict"),
+    on=["match_name", "shooter_div", "shooter_name"],
+    how="left"
+)
+preds = get_data("class_predict_per_stage")
 
 # --- FIX: align stage key column names + ensure uniqueness for merge ---
 if "stg_n" not in df.columns and "stg" in df.columns:
@@ -342,22 +359,15 @@ stage_class_preds = df.merge(preds[cols], on=keys, how="left", validate="many_to
 
 # ========= CHARTS =========
 st.subheader(_("stage_perf_distr"))
-c1, c2 = st.columns([2, 1], vertical_alignment='top')
+c1, c2 = st.columns([2, 1], vertical_alignment="top")
 with c1:
-    stage_distr(stage_class_preds, norm=norm, show_ref=show_ref, lock_axes=True)
+    stage_distr(stage_n_preds, norm=norm, show_ref=show_ref, lock_axes=True)
 with c2:
     st.write(_("stage_perf_distr_help_text"))
 
-st.subheader(_("class_pred_header"))
-c1, c2 = st.columns([1, 2], vertical_alignment='top')
-with c1:
-    st.write(_("class_pred_left_text"))
-with c2:
-    class_bubble(stage_n_preds, shooter=st.session_state.selected_shooter, show_ref=show_ref)
-
 st.subheader(_("stage_points_time_header"))
 st.write(_("stage_points_time_text"))
-c1, c2 = st.columns([3, 1], vertical_alignment='top')
+c1, c2 = st.columns([3, 1], vertical_alignment="top")
 with c2:
     show_points = st.checkbox(_("show_stage_points"), value=True, key="dd_show_points", help=_("show_stage_points_help"))
     show_labels = st.checkbox(_("show_centroid_labels"), value=True, key="dd_labels", help=_("show_centroid_labels_help"))

@@ -4,6 +4,106 @@ import plotly.graph_objects as go
 import plotly.colors as pc
 import numpy as np
 
+# def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
+#     # Validate required columns
+#     y = f"{norm}_factor_perc"
+#     need = {"match_name", y, "match_date"}
+#     if not need.issubset(df.columns):
+#         st.info(f"Columns `match_name`, `match_date`, `{y}` required — skipping distribution chart.")
+#         return
+
+#     # Sort matches by date
+#     match_order = (
+#         df[["match_name", "match_date"]]
+#         .drop_duplicates()
+#         .sort_values("match_date")["match_name"]
+#         .tolist()
+#     )
+
+#     # Create figure
+#     fig = go.Figure()
+
+#     # Add boxplots with centered outliers
+#     for match in match_order:
+#         match_df = df[df["match_name"] == match]
+
+#         fig.add_trace(
+#             go.Box(
+#                 y=match_df[y],
+#                 name=match,
+#                 boxpoints="outliers",  # Show outliers
+#                 jitter=0,              # Disable jitter to center outliers
+#                 pointpos=0,            # Center outliers on the box (0 = middle of box)
+#                 marker=dict(size=5, opacity=0.6),
+#                 line=dict(width=1),
+#                 hoverinfo="y+text",
+#                 # Build hover text: include Stage + Predicted Class
+#                 hovertemplate="Stage: %{customdata[0]}<br>"
+#                             "Predicted Class: %{customdata[1]}<br>"
+#                             "Result: %{y:.2%}<extra></extra>",
+#                 text=None,  # we now use customdata instead of text
+#                 customdata=np.stack([
+#                     match_df["stg"] if "stg" in match_df.columns else [""] * len(match_df),
+#                     match_df["pred_class"] if "pred_class" in match_df.columns else [""] * len(match_df),
+#                 ], axis=-1),
+#             )
+#         )
+
+#     # Add median line
+#     med = (
+#         df.groupby("match_name", as_index=False)[y]
+#         .median()
+#         .rename(columns={y: "median"})
+#         .merge(df[["match_name", "match_date"]].drop_duplicates(), on="match_name")
+#         .sort_values("match_date")
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             x=med["match_name"],
+#             y=med["median"],
+#             mode="lines+markers",
+#             name="Median",
+#             line=dict(color="grey", dash="dashdot", width=2),
+#             marker=dict(size=8),
+#             hovertemplate="Match: %{x}<br>Median: %{y:.2%}<extra></extra>",
+#         )
+#     )
+
+#     # Add reference line at 50% if requested
+#     if show_ref:
+#         fig.add_hline(
+#             y=0.5,
+#             line_dash="dash",
+#             line_color="gray",
+#             line_width=2,
+#             annotation_text="50%",
+#             annotation_position="top left",
+#         )
+
+#     # Update layout
+#     y_label_prefix = "Division" if norm == "div" else "Class"
+#     y_axis = dict(
+#         title=f"{y_label_prefix} Stage Result",
+#         tickformat=".0%",
+#         range=[0, 1] if lock_axes else [df[y].min(), df[y].max()],
+#     )
+#     fig.update_layout(
+#         xaxis=dict(
+#             # title="Match",
+#             categoryorder="array",
+#             categoryarray=match_order,
+#             tickangle=45,  # Rotate labels for better readability if needed
+#         ),
+#         yaxis=y_axis,
+#         showlegend=False,  # Hide legend as in original
+#         template="plotly_white",
+#         hovermode="closest",
+#         margin=dict(l=10, r=10, t=10, b=10)
+#     )
+
+#     # Display in Streamlit
+#     st.plotly_chart(fig, use_container_width=True)
+    
 def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
     # Validate required columns
     y = f"{norm}_factor_perc"
@@ -12,7 +112,7 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
         st.info(f"Columns `match_name`, `match_date`, `{y}` required — skipping distribution chart.")
         return
 
-    # Sort matches by date
+    # Sort matches by date (same handling as before: no coercion / no mutation)
     match_order = (
         df[["match_name", "match_date"]]
         .drop_duplicates()
@@ -23,7 +123,7 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
     # Create figure
     fig = go.Figure()
 
-    # Add boxplots with centered outliers
+    # --- 1) Distribution layer (boxplots) ---
     for match in match_order:
         match_df = df[df["match_name"] == match]
 
@@ -31,25 +131,23 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
             go.Box(
                 y=match_df[y],
                 name=match,
-                boxpoints="outliers",  # Show outliers
-                jitter=0,              # Disable jitter to center outliers
-                pointpos=0,            # Center outliers on the box (0 = middle of box)
+                boxpoints="outliers",
+                jitter=0,
+                pointpos=0,
                 marker=dict(size=5, opacity=0.6),
                 line=dict(width=1),
-                hoverinfo="y+text",
-                # Build hover text: include Stage + Predicted Class
                 hovertemplate="Stage: %{customdata[0]}<br>"
-                            "Predicted Class: %{customdata[1]}<br>"
-                            "Result: %{y:.2%}<extra></extra>",
-                text=None,  # we now use customdata instead of text
+                              "Predicted Class: %{customdata[1]}<br>"
+                              "Result: %{y:.2%}<extra></extra>",
                 customdata=np.stack([
                     match_df["stg"] if "stg" in match_df.columns else [""] * len(match_df),
                     match_df["pred_class"] if "pred_class" in match_df.columns else [""] * len(match_df),
                 ], axis=-1),
+                showlegend=False,
             )
         )
 
-    # Add median line
+    # --- 2) Median line across matches ---
     med = (
         df.groupby("match_name", as_index=False)[y]
         .median()
@@ -66,10 +164,49 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
             line=dict(color="grey", dash="dashdot", width=2),
             marker=dict(size=8),
             hovertemplate="Match: %{x}<br>Median: %{y:.2%}<extra></extra>",
+            showlegend=False,
         )
     )
 
-    # Add reference line at 50% if requested
+    # --- 3) Bubble overlay: ONE bubble per match (mode of pred_class) ---
+    if "pred_class" in df.columns:
+        # most frequent predicted class per match (mode); fallback to first value
+        cls = (
+            df[["match_name", "pred_class"]]
+            .dropna(subset=["pred_class"])
+            .groupby("match_name")["pred_class"]
+            .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0])
+            .reset_index()
+            .rename(columns={"pred_class": "pred_class_mode"})
+        )
+
+        bubbles = (
+            med[["match_name", "median"]]
+            .merge(cls, on="match_name", how="left")
+        )
+
+        # Draw LAST so it sits on top of boxes
+        fig.add_trace(
+            go.Scatter(
+                x=bubbles["match_name"],
+                y=bubbles["median"],
+                mode="markers+text",
+                text=bubbles["pred_class_mode"].fillna(""),
+                textposition="middle center",
+                textfont=dict(size=22, color="#1f1f1f"),
+                # marker=dict(
+                #     size=22,
+                #     color="rgba(0,0,0,0.00)",  # transparent fill
+                #     line=dict(color="black", width=2),
+                # ),
+                showlegend=False,
+                hovertemplate="Match: %{x}<br>"
+                              "Predicted Class: %{text}<br>"
+                              "Median: %{y:.2%}<extra></extra>",
+            )
+        )
+
+    # --- 4) Reference line at 50% ---
     if show_ref:
         fig.add_hline(
             y=0.5,
@@ -80,30 +217,29 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
             annotation_position="top left",
         )
 
-    # Update layout
+    # --- 5) Layout ---
     y_label_prefix = "Division" if norm == "div" else "Class"
     y_axis = dict(
         title=f"{y_label_prefix} Stage Result",
         tickformat=".0%",
         range=[0, 1] if lock_axes else [df[y].min(), df[y].max()],
     )
+
     fig.update_layout(
         xaxis=dict(
-            # title="Match",
             categoryorder="array",
             categoryarray=match_order,
-            tickangle=45,  # Rotate labels for better readability if needed
+            tickangle=45,
         ),
         yaxis=y_axis,
-        showlegend=False,  # Hide legend as in original
+        showlegend=False,
         template="plotly_white",
         hovermode="closest",
-        margin=dict(l=10, r=10, t=10, b=10)
+        margin=dict(l=10, r=10, t=10, b=10),
     )
 
-    # Display in Streamlit
-    st.plotly_chart(fig, use_container_width=True)
-    
+    st.plotly_chart(fig, use_container_width=True)  
+
 def stage_scatter(
     df: pd.DataFrame,
     norm: str = "div",
@@ -114,8 +250,14 @@ def stage_scatter(
     show_ref: bool = True,
     lock_axes: bool = True,
     show_points: bool = True,
-    show_regression: bool = False,   # 🆕 add regression line through centroids
+    show_regression: bool = False,
 ):
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import plotly.colors as pc
+    import streamlit as st
+
     y_label_prefix = "Division" if norm == "div" else "Class"
     x_label_prefix = "Division" if norm == "div" else "Class"
     y = f"{norm}_pts_perc"
@@ -128,9 +270,9 @@ def stage_scatter(
         return
 
     # Detect scale
-    tmax = df[x].max(skipna=True)
-    pmax = df[y].max(skipna=True)
-    is_fraction = max(tmax, pmax) <= 1.5
+    tmax = pd.to_numeric(df[x], errors="coerce").max(skipna=True)
+    pmax = pd.to_numeric(df[y], errors="coerce").max(skipna=True)
+    is_fraction = max(tmax, pmax) <= 1.5 if pd.notna(tmax) and pd.notna(pmax) else True
     ref_val = 0.5 if is_fraction else 50
     dom = [0, 1] if is_fraction else [0, 100]
     format_str = ".1%" if is_fraction else ".1f"
@@ -145,28 +287,41 @@ def stage_scatter(
 
     # Prepare data
     sdf = df[needed].copy().sort_values("match_date")
+
+    for col in [x, y, f"{norm}_factor_perc", "stg_n"]:
+        if col in sdf.columns:
+            sdf[col] = pd.to_numeric(sdf[col], errors="coerce")
+
+    sdf = sdf.replace([np.inf, -np.inf], np.nan)
     sdf.rename(columns={x: "Time (%)", y: "Points (%)"}, inplace=True)
 
     # Compute centroids
     cent = (
         sdf.groupby("match_name", as_index=False)
-           .agg(mean_time=("Time (%)", "mean"), mean_points=("Points (%)", "mean"))
-           .rename(columns={"mean_time": "Time (%)", "mean_points": "Points (%)"})
+        .agg(mean_time=("Time (%)", "mean"), mean_points=("Points (%)", "mean"))
+        .rename(columns={"mean_time": "Time (%)", "mean_points": "Points (%)"})
     )
     cent["label"] = cent["match_name"]
+    cent["Time (%)"] = pd.to_numeric(cent["Time (%)"], errors="coerce")
+    cent["Points (%)"] = pd.to_numeric(cent["Points (%)"], errors="coerce")
+    cent = cent.replace([np.inf, -np.inf], np.nan)
 
     # Determine axis ranges
     if show_points:
-        x_min, x_max = sdf["Time (%)"].min(), sdf["Time (%)"].max()
-        y_min, y_max = sdf["Points (%)"].min(), sdf["Points (%)"].max()
+        plot_df = sdf[["Time (%)", "Points (%)"]].replace([np.inf, -np.inf], np.nan).dropna()
     else:
-        x_min, x_max = cent["Time (%)"].min(), cent["Time (%)"].max()
-        y_min, y_max = cent["Points (%)"].min(), cent["Points (%)"].max()
+        plot_df = cent[["Time (%)", "Points (%)"]].replace([np.inf, -np.inf], np.nan).dropna()
+
+    if plot_df.empty:
+        st.info("No valid data to plot.")
+        return
+
+    x_min, x_max = plot_df["Time (%)"].min(), plot_df["Time (%)"].max()
+    y_min, y_max = plot_df["Points (%)"].min(), plot_df["Points (%)"].max()
     x_range = dom if lock_axes else [x_min, x_max]
     y_range = dom if lock_axes else [y_min, y_max]
 
     # Color map per match
-    import plotly.colors as pc
     colors = pc.qualitative.Plotly
     color_map = {match: colors[i % len(colors)] for i, match in enumerate(match_order)}
 
@@ -175,16 +330,22 @@ def stage_scatter(
     # Stage points
     if show_points:
         for match in match_order:
-            match_df = sdf[sdf["match_name"] == match]
+            match_df = sdf[sdf["match_name"] == match].copy()
+            match_df = match_df.replace([np.inf, -np.inf], np.nan)
+            match_df = match_df.dropna(subset=["Time (%)", "Points (%)"])
             if match_df.empty:
                 continue
-            point_plotly_size = int((point_size / np.pi) ** 0.5 * 2)  # approx diameter from area
 
-            # Build customdata with [result, pred_class]
-            customdata = np.stack([
-                match_df[f"{norm}_factor_perc"],
-                match_df["pred_class"] if "pred_class" in match_df.columns else [""] * len(match_df),
-            ], axis=-1)
+            point_plotly_size = int((point_size / np.pi) ** 0.5 * 2)
+
+            pred_class_vals = (
+                match_df["pred_class"].fillna("").astype(str).to_numpy()
+                if "pred_class" in match_df.columns
+                else np.array([""] * len(match_df), dtype=object)
+            )
+            result_vals = pd.to_numeric(match_df[f"{norm}_factor_perc"], errors="coerce").to_numpy()
+
+            customdata = np.column_stack([result_vals, pred_class_vals])
 
             fig.add_trace(
                 go.Scatter(
@@ -197,7 +358,7 @@ def stage_scatter(
                         color=color_map[match],
                     ),
                     name=match,
-                    text=match_df["stg_n"],
+                    text=match_df["stg_n"].astype("Int64").astype(str),
                     customdata=customdata,
                     hovertemplate=(
                         "Match: %{data.name}<br>"
@@ -213,9 +374,11 @@ def stage_scatter(
 
     # Centroids
     for match in match_order:
-        match_cent = cent[cent["match_name"] == match]
+        match_cent = cent[cent["match_name"] == match].copy()
+        match_cent = match_cent.dropna(subset=["Time (%)", "Points (%)"])
         if match_cent.empty:
             continue
+
         centroid_plotly_size = int((centroid_size / np.pi) ** 0.5 * 2)
         fig.add_trace(
             go.Scatter(
@@ -241,9 +404,11 @@ def stage_scatter(
     # Labels
     if show_labels:
         for match in match_order:
-            match_cent = cent[cent["match_name"] == match]
+            match_cent = cent[cent["match_name"] == match].copy()
+            match_cent = match_cent.dropna(subset=["Time (%)", "Points (%)"])
             if match_cent.empty:
                 continue
+
             fig.add_trace(
                 go.Scatter(
                     x=match_cent["Time (%)"],
@@ -257,50 +422,62 @@ def stage_scatter(
                 )
             )
 
-    # 🆕 Regression line through centroids
+    # Regression line through centroids
     if show_regression and len(cent) >= 2:
-        cx = cent["Time (%)"].to_numpy(dtype=float)
-        cy = cent["Points (%)"].to_numpy(dtype=float)
-        # Fit y = a*x + b
-        a, b = np.polyfit(cx, cy, 1)
-        # R^2
-        y_hat = a * cx + b
-        ss_res = np.sum((cy - y_hat) ** 2)
-        ss_tot = np.sum((cy - np.mean(cy)) ** 2)
-        r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
+        reg_df = cent[["Time (%)", "Points (%)"]].copy()
+        reg_df["Time (%)"] = pd.to_numeric(reg_df["Time (%)"], errors="coerce")
+        reg_df["Points (%)"] = pd.to_numeric(reg_df["Points (%)"], errors="coerce")
+        reg_df = reg_df.replace([np.inf, -np.inf], np.nan).dropna()
 
-        # Draw line across centroid x-range (bounded to visible range)
-        x0, x1 = float(np.min(cx)), float(np.max(cx))
-        line_x = np.linspace(x0, x1, 50)
-        line_y = a * line_x + b
+        cx = reg_df["Time (%)"].to_numpy(dtype=float)
+        cy = reg_df["Points (%)"].to_numpy(dtype=float)
 
-        fig.add_trace(
-            go.Scatter(
-                x=line_x, y=line_y,
-                mode="lines",
-                line=dict(color="grey", width=2, dash="dashdot"),
-                name="Centroid trend",
-                hovertemplate=(
-                    f"Trend: y = {a:.3f}·x + {b:.3f}<br>"
-                    f"R² = {r2:.3f}<extra></extra>"
-                ),
-                showlegend=False,
-            )
-        )
+        # Need at least 2 valid points and at least 2 distinct x values
+        if len(cx) >= 2 and len(cy) >= 2 and len(np.unique(cx)) >= 2:
+            try:
+                a, b = np.polyfit(cx, cy, 1)
 
-        # Annotate equation (top-left inside plot area)
-        fig.add_annotation(
-            xref="paper", yref="paper",
-            x=0.01, y=0.99,
-            xanchor="left", yanchor="top",
-            text=f"Trend (centroids): y = {a:.3f}·x + {b:.3f} &nbsp; | &nbsp; R² = {r2:.3f}",
-            showarrow=False,
-            font=dict(size=12, color="#333"),
-            bgcolor="rgba(255,255,255,0.6)",
-            bordercolor="#999",
-            borderwidth=1,
-            borderpad=4,
-        )
+                y_hat = a * cx + b
+                ss_res = np.sum((cy - y_hat) ** 2)
+                ss_tot = np.sum((cy - np.mean(cy)) ** 2)
+                r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+                x0, x1 = float(np.min(cx)), float(np.max(cx))
+                line_x = np.linspace(x0, x1, 50)
+                line_y = a * line_x + b
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=line_x,
+                        y=line_y,
+                        mode="lines",
+                        line=dict(color="grey", width=2, dash="dashdot"),
+                        name="Centroid trend",
+                        hovertemplate=(
+                            f"Trend: y = {a:.3f}·x + {b:.3f}<br>"
+                            f"R² = {r2:.3f}<extra></extra>"
+                        ),
+                        showlegend=False,
+                    )
+                )
+
+                fig.add_annotation(
+                    xref="paper",
+                    yref="paper",
+                    x=0.01,
+                    y=0.99,
+                    xanchor="left",
+                    yanchor="top",
+                    text=f"Trend (centroids): y = {a:.3f}·x + {b:.3f} &nbsp; | &nbsp; R² = {r2:.3f}",
+                    showarrow=False,
+                    font=dict(size=12, color="#333"),
+                    bgcolor="rgba(255,255,255,0.6)",
+                    bordercolor="#999",
+                    borderwidth=1,
+                    borderpad=4,
+                )
+            except (np.linalg.LinAlgError, ValueError, TypeError):
+                pass
 
     # Reference lines
     if show_ref:

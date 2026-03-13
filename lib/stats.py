@@ -105,3 +105,111 @@ def aggregate_shooter_performance(
     per_match = agg[out_cols].rename(columns={match_name_col: "match"})
 
     return {"G": G, "n_matches": int(per_match.shape[0]), "per_match": per_match}
+
+
+def stage_standing(
+    df: pd.DataFrame,
+    match: str,
+    shooter_div: str,
+    stg_n,
+    *,
+    match_name_col: str = "match_name",
+    shooter_div_col: str = "shooter_div",
+    stage_col: str = "stg_n",
+    hf_col: str = "hf",
+) -> pd.DataFrame:
+    """
+    Stage ranking for one match / division / stage.
+    """
+    stage_df = df.loc[
+        (df[match_name_col] == match) &
+        (df[shooter_div_col] == shooter_div) &
+        (df[stage_col] == stg_n)
+    ].copy()
+
+    if stage_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "rank", "shooter_name", "shooter_class",
+                "pts", "time", "hf", "stg_match_pts", "hf_pct"
+            ]
+        )
+
+    stage_df[hf_col] = pd.to_numeric(stage_df[hf_col], errors="coerce")
+    stage_df = stage_df.sort_values(hf_col, ascending=False)
+
+    stage_df["rank"] = (
+        stage_df[hf_col]
+        .rank(method="min", ascending=False)
+        .astype("Int64")
+    )
+
+    cols = [
+        "rank", "shooter_name", "shooter_class",
+        "pts", "time", "hf", "stg_match_pts", "hf_pct"
+    ]
+    cols = [c for c in cols if c in stage_df.columns]
+
+    return stage_df[cols].reset_index(drop=True)
+
+
+def match_standing(
+    df: pd.DataFrame,
+    match: str,
+    shooter_div: str,
+    *,
+    match_name_col: str = "match_name",
+    shooter_div_col: str = "shooter_div",
+    shooter_name_col: str = "shooter_name",
+    shooter_class_col: str = "shooter_class",
+    match_pts_col: str = "stg_match_pts",
+) -> pd.DataFrame:
+    """
+    Match ranking for one match / division, summing stage match points.
+    """
+    match_df = df.loc[
+        (df[match_name_col] == match) &
+        (df[shooter_div_col] == shooter_div)
+    ].copy()
+
+    if match_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "shooter_div", "rank", "shooter_name",
+                "shooter_class", "stg_match_pts", "pct"
+            ]
+        )
+
+    match_df[match_pts_col] = pd.to_numeric(match_df[match_pts_col], errors="coerce")
+
+    standing = (
+        match_df.groupby([shooter_name_col, shooter_class_col], dropna=False)[match_pts_col]
+        .sum()
+        .reset_index()
+        .sort_values(match_pts_col, ascending=False)
+        .reset_index(drop=True)
+    )
+
+    standing["rank"] = (
+        standing[match_pts_col]
+        .rank(method="min", ascending=False)
+        .astype("Int64")
+    )
+
+    max_pts = standing[match_pts_col].max()
+    if pd.isna(max_pts) or max_pts == 0:
+        standing["pct"] = np.nan
+    else:
+        standing["pct"] = (standing[match_pts_col] / max_pts).round(4)
+
+    standing["shooter_div"] = shooter_div
+
+    return standing[
+        ["shooter_div", "rank", shooter_name_col, shooter_class_col, match_pts_col, "pct"]
+    ].rename(
+        columns={
+            shooter_name_col: "shooter_name",
+            shooter_class_col: "shooter_class",
+            match_pts_col: "stg_match_pts",
+        }
+    )

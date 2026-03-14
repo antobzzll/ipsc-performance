@@ -918,3 +918,190 @@ def match_count(
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+
+def shooter_match_history(
+    df: pd.DataFrame,
+    shooter_name: str,
+    shooter_div: str,
+    metric: str = "pct",   # "pct" or "rank"
+    lock_y: bool = False,
+):
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import streamlit as st
+
+    from lib.stats import match_standing
+
+    needed = {
+        "match_name",
+        "match_date",
+        "shooter_name",
+        "shooter_div",
+        "shooter_class",
+        "stg_match_pts",
+    }
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.info(f"Missing required columns for match history chart: {missing}")
+        return
+
+    work = df.copy()
+    work["match_date"] = pd.to_datetime(work["match_date"], errors="coerce")
+    work["stg_match_pts"] = pd.to_numeric(work["stg_match_pts"], errors="coerce")
+
+    work = work[work["shooter_div"].astype(str) == str(shooter_div)].copy()
+    if work.empty:
+        st.info("No data for selected division.")
+        return
+
+    matches = (
+        work[["match_name", "match_date"]]
+        .drop_duplicates()
+        .sort_values("match_date")
+        .reset_index(drop=True)
+    )
+
+    rows = []
+    for _, r in matches.iterrows():
+        match_name = r["match_name"]
+        match_date = r["match_date"]
+
+        standing = match_standing(
+            work,
+            match=match_name,
+            shooter_div=shooter_div,
+        )
+
+        if standing.empty:
+            continue
+
+        shooter_row = standing[standing["shooter_name"] == shooter_name].copy()
+        if shooter_row.empty:
+            continue
+
+        shooter_row = shooter_row.iloc[0]
+
+        rows.append(
+            {
+                "match_name": match_name,
+                "match_date": match_date,
+                "shooter_name": shooter_name,
+                "shooter_div": shooter_div,
+                "shooter_class": shooter_row["shooter_class"],
+                "stg_match_pts": pd.to_numeric(shooter_row["stg_match_pts"], errors="coerce"),
+                "div_rank": pd.to_numeric(shooter_row["rank"], errors="coerce"),
+                "div_pct": pd.to_numeric(shooter_row["pct"], errors="coerce"),
+                "class_rank": pd.to_numeric(shooter_row["class_rank"], errors="coerce"),
+                "class_pct": pd.to_numeric(shooter_row["class_pct"], errors="coerce"),
+            }
+        )
+
+    if not rows:
+        st.info("No match history data available for selected shooter.")
+        return
+
+    plot_df = pd.DataFrame(rows).sort_values("match_date")
+    plot_df["match_label"] = plot_df.apply(
+        lambda r: f"{r['match_name']} ({r['match_date'].date()})"
+        if pd.notna(r["match_date"]) else str(r["match_name"]),
+        axis=1,
+    )
+
+    if metric not in {"pct", "rank"}:
+        st.info("metric must be 'pct' or 'rank'.")
+        return
+
+    if metric == "pct":
+        y_div = "div_pct"
+        y_cls = "class_pct"
+        yaxis = dict(
+            title="Percentage",
+            tickformat=".0%",
+            range=[0, 1] if lock_y else None,
+        )
+        text_div = None
+        text_cls = None
+        textpos_div = None
+        textpos_cls = None
+        hover_div = "Division %: %{y:.1%}<extra></extra>"
+        hover_cls = "Class %: %{y:.1%}<extra></extra>"
+    else:
+        y_div = "div_rank"
+        y_cls = "class_rank"
+        max_rank = pd.concat([plot_df[y_div], plot_df[y_cls]], axis=0).max(skipna=True)
+        yaxis = dict(
+            title="Standing",
+            autorange="reversed",
+            range=[float(max_rank) + 0.5, 0.5] if lock_y and pd.notna(max_rank) else None,
+            dtick=1,
+        )
+        text_div = plot_df[y_div].astype("Int64").astype(str)
+        text_cls = plot_df[y_cls].astype("Int64").astype(str)
+        textpos_div = "top center"
+        textpos_cls = "bottom center"
+        hover_div = "Division rank: %{y}<extra></extra>"
+        hover_cls = "Class rank: %{y}<extra></extra>"
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["match_label"],
+            y=plot_df[y_div],
+            mode="lines+markers+text",
+            name="Division",
+            text=text_div,
+            textposition=textpos_div,
+            customdata=np.column_stack([
+                plot_df["shooter_class"].fillna("").astype(str),
+                plot_df["stg_match_pts"].astype(float),
+            ]),
+            hovertemplate=(
+                "Match: %{x}<br>"
+                "Class: %{customdata[0]}<br>"
+                "Match pts: %{customdata[1]:.2f}<br>"
+                + hover_div
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["match_label"],
+            y=plot_df[y_cls],
+            mode="lines+markers+text",
+            name="Class",
+            text=text_cls,
+            textposition=textpos_cls,
+            customdata=np.column_stack([
+                plot_df["shooter_class"].fillna("").astype(str),
+                plot_df["stg_match_pts"].astype(float),
+            ]),
+            hovertemplate=(
+                "Match: %{x}<br>"
+                "Class: %{customdata[0]}<br>"
+                "Match pts: %{customdata[1]:.2f}<br>"
+                + hover_cls
+            ),
+        )
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        margin=dict(l=10, r=10, t=10, b=10),
+        hovermode="closest",
+        xaxis=dict(
+            title="Match",
+            tickangle=45,
+            categoryorder="array",
+            categoryarray=plot_df["match_label"].tolist(),
+        ),
+        yaxis=yaxis,
+        legend=dict(title="Scope"),
+        showlegend=True,
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    print(plot_df)

@@ -166,6 +166,14 @@ def match_standing(
 ) -> pd.DataFrame:
     """
     Match ranking for one match / division, summing stage match points.
+
+    Returns both:
+    - overall division standing:
+        - rank
+        - pct  (vs division winner)
+    - class standing:
+        - class_rank
+        - class_pct (vs class winner)
     """
     match_df = df.loc[
         (df[match_name_col] == match) &
@@ -175,8 +183,14 @@ def match_standing(
     if match_df.empty:
         return pd.DataFrame(
             columns=[
-                "shooter_div", "rank", "shooter_name",
-                "shooter_class", "stg_match_pts", "pct"
+                "shooter_div",
+                "rank",
+                "class_rank",
+                "shooter_name",
+                "shooter_class",
+                "stg_match_pts",
+                "pct",
+                "class_pct",
             ]
         )
 
@@ -190,6 +204,7 @@ def match_standing(
         .reset_index(drop=True)
     )
 
+    # Overall division rank / pct
     standing["rank"] = (
         standing[match_pts_col]
         .rank(method="min", ascending=False)
@@ -202,10 +217,33 @@ def match_standing(
     else:
         standing["pct"] = (standing[match_pts_col] / max_pts).round(4)
 
+    # Class rank / pct
+    standing["class_rank"] = (
+        standing.groupby(shooter_class_col, dropna=False)[match_pts_col]
+        .rank(method="min", ascending=False)
+        .astype("Int64")
+    )
+
+    class_max = standing.groupby(shooter_class_col, dropna=False)[match_pts_col].transform("max")
+    standing["class_pct"] = np.where(
+        class_max.isna() | (class_max == 0),
+        np.nan,
+        (standing[match_pts_col] / class_max).round(4),
+    )
+
     standing["shooter_div"] = shooter_div
 
     return standing[
-        ["shooter_div", "rank", shooter_name_col, shooter_class_col, match_pts_col, "pct"]
+        [
+            "shooter_div",
+            "rank",
+            "class_rank",
+            shooter_name_col,
+            shooter_class_col,
+            match_pts_col,
+            "pct",
+            "class_pct",
+        ]
     ].rename(
         columns={
             shooter_name_col: "shooter_name",

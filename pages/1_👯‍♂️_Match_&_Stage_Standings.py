@@ -3,10 +3,10 @@ import pandas as pd
 import streamlit as st
 
 from lib.data import get_data
-from lib.stats import match_standing
+from lib.stats import match_standing, stage_standing
 from lib.utils import get_page_title
 
-st.set_page_config(page_title="Match Standing", layout="wide")
+st.set_page_config(page_title="Match & Stage Standings", layout="wide")
 
 # ========= I18N =========
 LANG = {
@@ -18,15 +18,20 @@ LANG = {
         "match_help": "Select the match to analyze",
         "division": "Division",
         "division_help": "Select the shooter division",
+        "stage": "Stage",
+        "stage_help": "Select the stage to analyze",
         "show_raw_rows": "Show raw match rows",
         "show_raw_rows_help": "Show original filtered rows for the selected match and division",
         "show_stage_summary": "Show stage summary",
         "show_stage_summary_help": "Show a stage-by-stage summary for the selected match and division",
+        "show_stage_standing": "Show stage standing",
+        "show_stage_standing_help": "Show standing for the selected stage",
         "no_data": "No data for the selected filters.",
         "match_analysis": "Match Standing",
         "match_summary": "Match Summary",
         "match_standing_header": "Match Standing",
         "stage_summary_header": "Stage Summary",
+        "stage_standing_header": "Stage Standing",
         "raw_rows_header": "Raw Match Rows",
         "n_shooters": "Shooters",
         "n_stages": "Stages",
@@ -35,11 +40,10 @@ LANG = {
         "avg_hf": "Avg HF",
         "selected_match": "Selected Match",
         "selected_division": "Selected Division",
+        "selected_stage": "Selected Stage",
         "download_csv": "Download CSV",
-        "stage": "Stage",
         "best_hf": "Best HF",
         "median_hf": "Median HF",
-        "avg_stage_pts": "Avg Stage Pts",
         "winner_stage_count": "Winner Stage Wins",
     },
     "it": {
@@ -50,15 +54,20 @@ LANG = {
         "match_help": "Seleziona il match da analizzare",
         "division": "Divisione",
         "division_help": "Seleziona la divisione del tiratore",
+        "stage": "Stage",
+        "stage_help": "Seleziona lo stage da analizzare",
         "show_raw_rows": "Mostra righe match grezze",
         "show_raw_rows_help": "Mostra le righe originali filtrate per match e divisione selezionati",
         "show_stage_summary": "Mostra riepilogo stage",
         "show_stage_summary_help": "Mostra un riepilogo stage per stage del match e divisione selezionati",
+        "show_stage_standing": "Mostra classifica stage",
+        "show_stage_standing_help": "Mostra la classifica dello stage selezionato",
         "no_data": "Nessun dato per i filtri selezionati.",
         "match_analysis": "Classifica Match",
         "match_summary": "Riepilogo Match",
         "match_standing_header": "Classifica Match",
         "stage_summary_header": "Riepilogo Stage",
+        "stage_standing_header": "Classifica Stage",
         "raw_rows_header": "Righe Grezze Match",
         "n_shooters": "Tiratori",
         "n_stages": "Stage",
@@ -67,11 +76,10 @@ LANG = {
         "avg_hf": "HF Medio",
         "selected_match": "Match Selezionato",
         "selected_division": "Divisione Selezionata",
+        "selected_stage": "Stage Selezionato",
         "download_csv": "Scarica CSV",
-        "stage": "Stage",
         "best_hf": "Miglior HF",
         "median_hf": "HF Mediano",
-        "avg_stage_pts": "Punti Stage Medi",
         "winner_stage_count": "Stage Vinti dal Vincitore",
     },
 }
@@ -182,11 +190,47 @@ st.session_state.selected_match_analysis_division = selected_division
 
 match_df = match_df[match_df["shooter_div"].astype(str) == str(selected_division)].copy()
 
+if match_df.empty:
+    st.warning(_("no_data"))
+    st.stop()
+
+stage_options = []
+if "stg_n" in match_df.columns:
+    stage_options = (
+        match_df["stg_n"]
+        .dropna()
+        .astype("Int64")
+        .sort_values()
+        .unique()
+        .tolist()
+    )
+
+selected_stage = None
+if stage_options:
+    if "selected_match_analysis_stage" not in st.session_state or st.session_state.selected_match_analysis_stage not in stage_options:
+        st.session_state.selected_match_analysis_stage = stage_options[0]
+
+    selected_stage = st.sidebar.selectbox(
+        _("stage"),
+        options=stage_options,
+        index=stage_options.index(st.session_state.selected_match_analysis_stage),
+        key="dd_match_analysis_stage",
+        help=_("stage_help"),
+    )
+    st.session_state.selected_match_analysis_stage = selected_stage
+
 show_stage_summary = st.sidebar.checkbox(
     _("show_stage_summary"),
     value=True,
     key="dd_match_analysis_show_stage_summary",
     help=_("show_stage_summary_help"),
+)
+
+show_stage_standing = st.sidebar.checkbox(
+    _("show_stage_standing"),
+    value=True,
+    key="dd_match_analysis_show_stage_standing",
+    help=_("show_stage_standing_help"),
 )
 
 show_raw_rows = st.sidebar.checkbox(
@@ -196,17 +240,23 @@ show_raw_rows = st.sidebar.checkbox(
     help=_("show_raw_rows_help"),
 )
 
-if match_df.empty:
-    st.warning(_("no_data"))
-    st.stop()
-
 # ========= STANDINGS =========
 standing = match_standing(
     match_df,
     match=selected_match_name,
     shooter_div=selected_division,
 ).copy()
-standing = standing.drop(columns=['shooter_div'], errors='ignore')
+standing = standing.drop(columns=["shooter_div"], errors="ignore")
+
+stage_stand = pd.DataFrame()
+if show_stage_standing and selected_stage is not None:
+    stage_stand = stage_standing(
+        match_df,
+        match=selected_match_name,
+        shooter_div=selected_division,
+        stg_n=selected_stage,
+    ).copy()
+
 # ========= SUMMARY =========
 winner_name = standing.iloc[0]["shooter_name"] if not standing.empty and "shooter_name" in standing.columns else None
 top_score = standing["stg_match_pts"].max() if not standing.empty and "stg_match_pts" in standing.columns else np.nan
@@ -225,10 +275,13 @@ if winner_name is not None and "stg_n" in match_df.columns and "hf" in match_df.
     )
     winner_stage_count = int((stage_winners["shooter_name"] == winner_name).sum())
 
-st.caption(
+caption = (
     f"**{_('selected_match')}:** {selected_match_label}  \n"
     f"**{_('selected_division')}:** {selected_division}"
 )
+if selected_stage is not None:
+    caption += f"  \n**{_('selected_stage')}:** {selected_stage}"
+st.caption(caption)
 
 st.subheader(_("match_summary"))
 c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -243,15 +296,6 @@ st.write("---")
 
 # ========= MATCH STANDING =========
 st.subheader(_("match_standing_header"))
-
-# st.download_button(
-#     label=_("download_csv"),
-#     data=standing.to_csv(index=False).encode("utf-8"),
-#     file_name=f"match_standing_{selected_match_name}_{selected_division}.csv",
-#     mime="text/csv",
-#     key="dl_match_analysis_standing",
-# )
-
 st.dataframe(standing, use_container_width=True, hide_index=True)
 
 # ========= STAGE SUMMARY =========
@@ -261,7 +305,6 @@ if show_stage_summary and "stg_n" in match_df.columns:
     stage_summary = (
         match_df.groupby("stg_n", dropna=False)
         .agg(
-            # n_shooters=("shooter_name", "nunique") if "shooter_name" in match_df.columns else ("stg_n", "size"),
             best_hf=("hf", "max") if "hf" in match_df.columns else ("stg_n", "size"),
             median_hf=("hf", "median") if "hf" in match_df.columns else ("stg_n", "size"),
             med_stage_pts=("stg_match_pts", "median") if "stg_match_pts" in match_df.columns else ("stg_n", "size"),
@@ -271,28 +314,26 @@ if show_stage_summary and "stg_n" in match_df.columns:
         .rename(columns={"stg_n": _("stage")})
     )
 
-    # st.download_button(
-    #     label=_("download_csv"),
-    #     data=stage_summary.to_csv(index=False).encode("utf-8"),
-    #     file_name=f"match_stage_summary_{selected_match_name}_{selected_division}.csv",
-    #     mime="text/csv",
-    #     key="dl_match_analysis_stage_summary",
-    # )
-
     st.dataframe(stage_summary, use_container_width=True, hide_index=True)
+    
+# ========= STAGE STANDING =========
+if show_stage_standing and selected_stage is not None:
+    st.subheader(_("stage_standing_header"))
+    if stage_stand.empty:
+        st.info(_("no_data"))
+    else:
+        st.dataframe(stage_stand, use_container_width=True, hide_index=True)
+
+
 
 # ========= RAW ROWS =========
 if show_raw_rows:
     st.subheader(_("raw_rows_header"))
 
-    raw_df = match_df.sort_values(["stg_n", "hf"], ascending=[True, False]) if "stg_n" in match_df.columns and "hf" in match_df.columns else match_df.copy()
-
-    # st.download_button(
-    #     label=_("download_csv"),
-    #     data=raw_df.to_csv(index=False).encode("utf-8"),
-    #     file_name=f"raw_match_rows_{selected_match_name}_{selected_division}.csv",
-    #     mime="text/csv",
-    #     key="dl_match_analysis_raw",
-    # )
+    raw_df = (
+        match_df.sort_values(["stg_n", "hf"], ascending=[True, False])
+        if "stg_n" in match_df.columns and "hf" in match_df.columns
+        else match_df.copy()
+    )
 
     st.dataframe(raw_df, use_container_width=True, hide_index=True)

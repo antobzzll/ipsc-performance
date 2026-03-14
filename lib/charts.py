@@ -105,6 +105,11 @@ import numpy as np
 #     st.plotly_chart(fig, use_container_width=True)
     
 def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import streamlit as st
+
     # Validate required columns
     y = f"{norm}_factor_perc"
     need = {"match_name", y, "match_date"}
@@ -112,7 +117,17 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
         st.info(f"Columns `match_name`, `match_date`, `{y}` required — skipping distribution chart.")
         return
 
-    # Sort matches by date (same handling as before: no coercion / no mutation)
+    # Prefer stage-level predicted class for outliers
+    stage_pred_col = None
+    for candidate in ["pred_class_stage", "pred_class_per_stage", "pred_class"]:
+        if candidate in df.columns:
+            stage_pred_col = candidate
+            break
+
+    # Stage id column
+    stage_col = "stg_n" if "stg_n" in df.columns else ("stg" if "stg" in df.columns else None)
+
+    # Sort matches by date
     match_order = (
         df[["match_name", "match_date"]]
         .drop_duplicates()
@@ -125,7 +140,21 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
 
     # --- 1) Distribution layer (boxplots) ---
     for match in match_order:
-        match_df = df[df["match_name"] == match]
+        match_df = df[df["match_name"] == match].copy()
+
+        stage_vals = (
+            match_df[stage_col].astype(str).to_numpy()
+            if stage_col is not None
+            else np.array([""] * len(match_df), dtype=object)
+        )
+
+        pred_vals = (
+            match_df[stage_pred_col].fillna("").astype(str).to_numpy()
+            if stage_pred_col is not None
+            else np.array([""] * len(match_df), dtype=object)
+        )
+
+        customdata = np.column_stack([stage_vals, pred_vals])
 
         fig.add_trace(
             go.Box(
@@ -136,13 +165,12 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
                 pointpos=0,
                 marker=dict(size=5, opacity=0.6),
                 line=dict(width=1),
-                hovertemplate="Stage: %{customdata[0]}<br>"
-                              "Predicted Class: %{customdata[1]}<br>"
-                              "Result: %{y:.2%}<extra></extra>",
-                customdata=np.stack([
-                    match_df["stg"] if "stg" in match_df.columns else [""] * len(match_df),
-                    match_df["pred_class"] if "pred_class" in match_df.columns else [""] * len(match_df),
-                ], axis=-1),
+                hovertemplate=(
+                    "Stage: %{customdata[0]}<br>"
+                    "Predicted Class: %{customdata[1]}<br>"
+                    "Result: %{y:.2%}<extra></extra>"
+                ),
+                customdata=customdata,
                 showlegend=False,
             )
         )
@@ -155,6 +183,7 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
         .merge(df[["match_name", "match_date"]].drop_duplicates(), on="match_name")
         .sort_values("match_date")
     )
+
     fig.add_trace(
         go.Scatter(
             x=med["match_name"],
@@ -168,24 +197,26 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
         )
     )
 
-    # --- 3) Bubble overlay: ONE bubble per match (mode of pred_class) ---
-    if "pred_class" in df.columns:
-        # most frequent predicted class per match (mode); fallback to first value
+    # --- 3) Bubble overlay: ONE bubble per match ---
+    # Keep match-level mode if available; otherwise fallback to stage-level mode
+    bubble_pred_col = None
+    for candidate in ["pred_class", "pred_class_stage", "pred_class_per_stage"]:
+        if candidate in df.columns:
+            bubble_pred_col = candidate
+            break
+
+    if bubble_pred_col is not None:
         cls = (
-            df[["match_name", "pred_class"]]
-            .dropna(subset=["pred_class"])
-            .groupby("match_name")["pred_class"]
+            df[["match_name", bubble_pred_col]]
+            .dropna(subset=[bubble_pred_col])
+            .groupby("match_name")[bubble_pred_col]
             .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0])
             .reset_index()
-            .rename(columns={"pred_class": "pred_class_mode"})
+            .rename(columns={bubble_pred_col: "pred_class_mode"})
         )
 
-        bubbles = (
-            med[["match_name", "median"]]
-            .merge(cls, on="match_name", how="left")
-        )
+        bubbles = med[["match_name", "median"]].merge(cls, on="match_name", how="left")
 
-        # Draw LAST so it sits on top of boxes
         fig.add_trace(
             go.Scatter(
                 x=bubbles["match_name"],
@@ -194,15 +225,12 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
                 text=bubbles["pred_class_mode"].fillna(""),
                 textposition="middle center",
                 textfont=dict(size=22, color="#1f1f1f"),
-                # marker=dict(
-                #     size=22,
-                #     color="rgba(0,0,0,0.00)",  # transparent fill
-                #     line=dict(color="black", width=2),
-                # ),
                 showlegend=False,
-                hovertemplate="Match: %{x}<br>"
-                              "Predicted Class: %{text}<br>"
-                              "Median: %{y:.2%}<extra></extra>",
+                hovertemplate=(
+                    "Match: %{x}<br>"
+                    "Predicted Class: %{text}<br>"
+                    "Median: %{y:.2%}<extra></extra>"
+                ),
             )
         )
 
@@ -219,10 +247,13 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
 
     # --- 5) Layout ---
     y_label_prefix = "Division" if norm == "div" else "Class"
+    y_min = pd.to_numeric(df[y], errors="coerce").min()
+    y_max = pd.to_numeric(df[y], errors="coerce").max()
+
     y_axis = dict(
         title=f"{y_label_prefix} Stage Result",
         tickformat=".0%",
-        range=[0, 1] if lock_axes else [df[y].min(), df[y].max()],
+        range=[0, 1] if lock_axes else [y_min, y_max],
     )
 
     fig.update_layout(
@@ -254,24 +285,48 @@ def stage_scatter(
 ):
     import numpy as np
     import pandas as pd
-    import plotly.graph_objects as go
     import plotly.colors as pc
+    import plotly.graph_objects as go
     import streamlit as st
 
     y_label_prefix = "Division" if norm == "div" else "Class"
     x_label_prefix = "Division" if norm == "div" else "Class"
     y = f"{norm}_pts_perc"
     x = f"{norm}_time_perc"
+    f = f"{norm}_factor_perc"
 
-    needed = ["match_date", y, x, "match_name", "stg_n", f"{norm}_factor_perc", "pred_class"]
+    needed = ["match_date", y, x, "match_name", "stg_n", f, "pred_class"]
     missing = [c for c in needed if c not in df.columns]
     if missing:
         st.info(f"Missing required columns for scatter: {missing}")
         return
 
+    # Prepare working dataframe
+    sdf = df[needed].copy()
+
+    # Numeric conversion
+    for col in [x, y, f, "stg_n"]:
+        if col in sdf.columns:
+            sdf[col] = pd.to_numeric(sdf[col], errors="coerce")
+
+    if "match_date" in sdf.columns:
+        sdf["match_date"] = pd.to_datetime(sdf["match_date"], errors="coerce")
+
+    # Remove invalid/problematic stages from the chart entirely
+    sdf = sdf.replace([np.inf, -np.inf], np.nan)
+    sdf = sdf.dropna(subset=[x, y, f])
+    sdf = sdf[(sdf[x] != 0) & (sdf[y] != 0) & (sdf[f] != 0)]
+
+    if sdf.empty:
+        st.info("No valid stage data to plot.")
+        return
+
+    sdf = sdf.sort_values("match_date")
+    sdf = sdf.rename(columns={x: "Time (%)", y: "Points (%)"})
+
     # Detect scale
-    tmax = pd.to_numeric(df[x], errors="coerce").max(skipna=True)
-    pmax = pd.to_numeric(df[y], errors="coerce").max(skipna=True)
+    tmax = sdf["Time (%)"].max(skipna=True)
+    pmax = sdf["Points (%)"].max(skipna=True)
     is_fraction = max(tmax, pmax) <= 1.5 if pd.notna(tmax) and pd.notna(pmax) else True
     ref_val = 0.5 if is_fraction else 50
     dom = [0, 1] if is_fraction else [0, 100]
@@ -279,49 +334,45 @@ def stage_scatter(
 
     # Match order
     match_order = (
-        df[["match_name", "match_date"]]
+        sdf[["match_name", "match_date"]]
         .drop_duplicates()
         .sort_values("match_date")["match_name"]
         .tolist()
     )
 
-    # Prepare data
-    sdf = df[needed].copy().sort_values("match_date")
-
-    for col in [x, y, f"{norm}_factor_perc", "stg_n"]:
-        if col in sdf.columns:
-            sdf[col] = pd.to_numeric(sdf[col], errors="coerce")
-
-    sdf = sdf.replace([np.inf, -np.inf], np.nan)
-    sdf.rename(columns={x: "Time (%)", y: "Points (%)"}, inplace=True)
-
-    # Compute centroids
+    # Compute centroids on cleaned data only
     cent = (
         sdf.groupby("match_name", as_index=False)
-        .agg(mean_time=("Time (%)", "mean"), mean_points=("Points (%)", "mean"))
+        .agg(
+            mean_time=("Time (%)", "mean"),
+            mean_points=("Points (%)", "mean"),
+        )
         .rename(columns={"mean_time": "Time (%)", "mean_points": "Points (%)"})
     )
     cent["label"] = cent["match_name"]
-    cent["Time (%)"] = pd.to_numeric(cent["Time (%)"], errors="coerce")
-    cent["Points (%)"] = pd.to_numeric(cent["Points (%)"], errors="coerce")
-    cent = cent.replace([np.inf, -np.inf], np.nan)
+
+    if cent.empty:
+        st.info("No valid centroid data to plot.")
+        return
 
     # Determine axis ranges
     if show_points:
-        plot_df = sdf[["Time (%)", "Points (%)"]].replace([np.inf, -np.inf], np.nan).dropna()
+        axis_df = sdf[["Time (%)", "Points (%)"]].copy()
     else:
-        plot_df = cent[["Time (%)", "Points (%)"]].replace([np.inf, -np.inf], np.nan).dropna()
+        axis_df = cent[["Time (%)", "Points (%)"]].copy()
 
-    if plot_df.empty:
+    axis_df = axis_df.replace([np.inf, -np.inf], np.nan).dropna(subset=["Time (%)", "Points (%)"])
+
+    if axis_df.empty:
         st.info("No valid data to plot.")
         return
 
-    x_min, x_max = plot_df["Time (%)"].min(), plot_df["Time (%)"].max()
-    y_min, y_max = plot_df["Points (%)"].min(), plot_df["Points (%)"].max()
+    x_min, x_max = axis_df["Time (%)"].min(), axis_df["Time (%)"].max()
+    y_min, y_max = axis_df["Points (%)"].min(), axis_df["Points (%)"].max()
     x_range = dom if lock_axes else [x_min, x_max]
     y_range = dom if lock_axes else [y_min, y_max]
 
-    # Color map per match
+    # Color map
     colors = pc.qualitative.Plotly
     color_map = {match: colors[i % len(colors)] for i, match in enumerate(match_order)}
 
@@ -331,21 +382,15 @@ def stage_scatter(
     if show_points:
         for match in match_order:
             match_df = sdf[sdf["match_name"] == match].copy()
-            match_df = match_df.replace([np.inf, -np.inf], np.nan)
-            match_df = match_df.dropna(subset=["Time (%)", "Points (%)"])
             if match_df.empty:
                 continue
 
             point_plotly_size = int((point_size / np.pi) ** 0.5 * 2)
 
-            pred_class_vals = (
-                match_df["pred_class"].fillna("").astype(str).to_numpy()
-                if "pred_class" in match_df.columns
-                else np.array([""] * len(match_df), dtype=object)
-            )
-            result_vals = pd.to_numeric(match_df[f"{norm}_factor_perc"], errors="coerce").to_numpy()
+            pred_vals = match_df["pred_class"].fillna("").astype(str).to_numpy()
+            result_vals = pd.to_numeric(match_df[f], errors="coerce").to_numpy()
 
-            customdata = np.column_stack([result_vals, pred_class_vals])
+            customdata = np.column_stack([result_vals, pred_vals])
 
             fig.add_trace(
                 go.Scatter(
@@ -375,11 +420,11 @@ def stage_scatter(
     # Centroids
     for match in match_order:
         match_cent = cent[cent["match_name"] == match].copy()
-        match_cent = match_cent.dropna(subset=["Time (%)", "Points (%)"])
         if match_cent.empty:
             continue
 
         centroid_plotly_size = int((centroid_size / np.pi) ** 0.5 * 2)
+
         fig.add_trace(
             go.Scatter(
                 x=match_cent["Time (%)"],
@@ -405,7 +450,6 @@ def stage_scatter(
     if show_labels:
         for match in match_order:
             match_cent = cent[cent["match_name"] == match].copy()
-            match_cent = match_cent.dropna(subset=["Time (%)", "Points (%)"])
             if match_cent.empty:
                 continue
 
@@ -425,15 +469,13 @@ def stage_scatter(
     # Regression line through centroids
     if show_regression and len(cent) >= 2:
         reg_df = cent[["Time (%)", "Points (%)"]].copy()
-        reg_df["Time (%)"] = pd.to_numeric(reg_df["Time (%)"], errors="coerce")
-        reg_df["Points (%)"] = pd.to_numeric(reg_df["Points (%)"], errors="coerce")
         reg_df = reg_df.replace([np.inf, -np.inf], np.nan).dropna()
+        reg_df = reg_df[(reg_df["Time (%)"] != 0) & (reg_df["Points (%)"] != 0)]
 
         cx = reg_df["Time (%)"].to_numpy(dtype=float)
         cy = reg_df["Points (%)"].to_numpy(dtype=float)
 
-        # Need at least 2 valid points and at least 2 distinct x values
-        if len(cx) >= 2 and len(cy) >= 2 and len(np.unique(cx)) >= 2:
+        if len(cx) >= 2 and len(np.unique(cx)) >= 2:
             try:
                 a, b = np.polyfit(cx, cy, 1)
 
@@ -501,6 +543,7 @@ def stage_scatter(
         gridcolor="lightgray",
         dtick=0.125 if is_fraction else 12.5,
     )
+
     fig.update_layout(
         xaxis=x_axis,
         yaxis=y_axis,
@@ -703,7 +746,7 @@ def match_count(
     
     # Columns required for the most flexible combinations; we validate again later
     needed = {
-        "shooter", "match_name", "match_date", "match_level", "div", "class",
+        "shooter_name", "match_name", "match_date", "match_level", "shooter_div", "shooter_class",
     }
     miss = needed - set(df.columns)
     if miss:
@@ -711,7 +754,7 @@ def match_count(
         return
 
     # Filter and prepare data
-    d = df.loc[df["shooter"] == shooter].copy()
+    d = df.loc[df["shooter_name"] == shooter].copy()
     if d.empty:
         st.info("No data for the specified shooter.")
         return
@@ -736,7 +779,7 @@ def match_count(
 
     # Work at match-level (1 row per match for this shooter)
     matches = (
-        d[["match_name", "match_date", "match_level", "div", "class"]]
+        d[["match_name", "match_date", "match_level", "shooter_div", "shooter_class"]]
         .drop_duplicates(subset=["match_name"])  # avoid counting stages
         .copy()
     )
@@ -790,16 +833,16 @@ def match_count(
         matches["x_label"] = matches["lvl_label"].fillna("Unknown")
     elif x_axis in {"div", "division"}:
         x_field = "div"
-        cats = sorted(matches["div"].dropna().astype(str).unique().tolist())
-        x_labels = _labels_with_unknown(cats, matches["div"].isna().any())
+        cats = sorted(matches["shooter_div"].dropna().astype(str).unique().tolist())
+        x_labels = _labels_with_unknown(cats, matches["shooter_div"].isna().any())
         x_title = "Division"
-        matches["x_label"] = matches["div"].fillna("Unknown").astype(str)
+        matches["x_label"] = matches["shooter_div"].fillna("Unknown").astype(str)
     elif x_axis in {"class"}:
         x_field = "class"
-        cats = sorted(matches["class"].dropna().astype(str).unique().tolist())
-        x_labels = _labels_with_unknown(cats, matches["class"].isna().any())
+        cats = sorted(matches["shooter_class"].dropna().astype(str).unique().tolist())
+        x_labels = _labels_with_unknown(cats, matches["shooter_class"].isna().any())
         x_title = "Class"
-        matches["x_label"] = matches["class"].fillna("Unknown").astype(str)
+        matches["x_label"] = matches["shooter_class"].fillna("Unknown").astype(str)
     else:
         st.info(f"Unknown x_axis '{x_axis}'. Use 'year', 'match_level', 'div', or 'class'.")
         return
@@ -813,10 +856,10 @@ def match_count(
         color_field = "lvl_label"
         legend_title = "Match Level"
     elif color in {"div", "division"}:
-        color_field = "div"
+        color_field = "shooter_div"
         legend_title = "Division"
     elif color in {"class"}:
-        color_field = "class"
+        color_field = "shooter_class"
         legend_title = "Class"
     else:
         st.info(f"Unknown color '{color}'. Use 'match_level', 'div', 'class', or None.")

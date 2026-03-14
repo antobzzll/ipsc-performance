@@ -361,7 +361,7 @@ stage_class_preds = df.merge(preds[cols], on=keys, how="left", validate="many_to
 st.subheader(_("stage_perf_distr"))
 c1, c2 = st.columns([2, 1], vertical_alignment="top")
 with c1:
-    stage_distr(stage_n_preds, norm=norm, show_ref=show_ref, lock_axes=True)
+    stage_distr(stage_class_preds, norm=norm, show_ref=show_ref, lock_axes=True)
 with c2:
     st.write(_("stage_perf_distr_help_text"))
 

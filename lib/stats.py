@@ -167,13 +167,19 @@ def match_standing(
     """
     Match ranking for one match / division, summing stage match points.
 
-    Returns both:
+    Returns:
     - overall division standing:
         - rank
-        - pct  (vs division winner)
+        - pct (vs division winner)
     - class standing:
         - class_rank
         - class_pct (vs class winner)
+    - pct_vs_non_m_gm:
+        - pct vs first shooter in A/B/C/D
+    - pct_vs_non_m_gm_minus_16:
+        - pct_vs_non_m_gm minus 16 percentage points
+    - championship:
+        - championship label from source df
     """
     match_df = df.loc[
         (df[match_name_col] == match) &
@@ -183,6 +189,7 @@ def match_standing(
     if match_df.empty:
         return pd.DataFrame(
             columns=[
+                "championship",
                 "shooter_div",
                 "rank",
                 "class_rank",
@@ -191,10 +198,18 @@ def match_standing(
                 "stg_match_pts",
                 "pct",
                 "class_pct",
+                "pct_abcd",
+                "pct_abcd_minus_16",
             ]
         )
 
     match_df[match_pts_col] = pd.to_numeric(match_df[match_pts_col], errors="coerce")
+
+    championship_value = np.nan
+    if "championship" in match_df.columns:
+        ch_vals = match_df["championship"].dropna().unique().tolist()
+        if ch_vals:
+            championship_value = ch_vals[0]
 
     standing = (
         match_df.groupby([shooter_name_col, shooter_class_col], dropna=False)[match_pts_col]
@@ -231,10 +246,32 @@ def match_standing(
         (standing[match_pts_col] / class_max).round(4),
     )
 
+    # Pct vs first shooter in A/B/C/D
+    non_m_gm = standing[
+        standing[shooter_class_col].astype(str).str.upper().isin(["A", "B", "C", "D"])
+    ].copy()
+
+    if non_m_gm.empty:
+        ref_non_m_gm_pts = np.nan
+    else:
+        ref_non_m_gm_pts = pd.to_numeric(non_m_gm.iloc[0][match_pts_col], errors="coerce")
+
+    if pd.isna(ref_non_m_gm_pts) or ref_non_m_gm_pts == 0:
+        standing["pct_vs_non_m_gm"] = np.nan
+    else:
+        standing["pct_vs_non_m_gm"] = (standing[match_pts_col] / ref_non_m_gm_pts).round(4)
+
+    # Deduct 16 percentage points
+    standing["pct_vs_non_m_gm_minus_16"] = (
+        standing["pct_vs_non_m_gm"] - 0.16
+    ).round(4)
+
     standing["shooter_div"] = shooter_div
+    standing["championship"] = championship_value
 
     return standing[
         [
+            "championship",
             "shooter_div",
             "rank",
             "class_rank",
@@ -242,6 +279,8 @@ def match_standing(
             shooter_class_col,
             match_pts_col,
             "pct",
+            "pct_vs_non_m_gm",
+            "pct_vs_non_m_gm_minus_16",
             "class_pct",
         ]
     ].rename(
@@ -249,5 +288,7 @@ def match_standing(
             shooter_name_col: "shooter_name",
             shooter_class_col: "shooter_class",
             match_pts_col: "stg_match_pts",
+            "pct_vs_non_m_gm": "pct_abcd",
+            "pct_vs_non_m_gm_minus_16": "pct_abcd_minus_16",
         }
     )

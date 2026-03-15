@@ -4,7 +4,7 @@ import streamlit as st
 from lib.data import get_data
 from lib.stats import aggregate_shooter_performance
 from lib.utils import get_page_title
-from lib.charts import stage_distr, stage_scatter
+from lib.charts import stage_distr, stage_scatter, shooter_match_history
 
 st.set_page_config(page_title="Shooter Performance", layout="wide")
 
@@ -29,6 +29,8 @@ LANG = {
         "power_factor_help": "Filter by power factor (e.g., Minor / Major)",
         "match_year": "Year",
         "match_year_help": "Filter matches by year",
+        "championship": "Championship",
+        "championship_help": "Filter matches by championship",
         "shooter_div": "Shooter Division",
         "shooter_div_help": "Filter results by shooter division",
         "match_levels": "Match Levels",
@@ -49,16 +51,6 @@ LANG = {
             "Why it matters: You can quickly tell if your performance is consistent or if certain "
             "matches were tougher, giving you a clear picture of where you stand compared to others."
         ),
-        "class_pred_header": "Class Prediction Based on Performance",
-        "class_pred_left_text": (
-            "This chart focuses on your personal performance across matches. "
-            "Each bubble represents a match, placed by match name and your median score. "
-            "The bubble size shows how consistent you were (bigger means more consistent), "
-            "and colors indicate your predicted skill class (e.g., A, B). "
-            "A line connects your scores to show progress over time.\n\n"
-            "Why it matters: You can see how your consistency and skill level evolve, "
-            "helping you set goals to climb to a higher class or stay steady in tough matches."
-        ),
         "stage_points_time_header": "Stage Points and Time",
         "stage_points_time_text": (
             "This chart plots your individual stage results (points vs. time) for each match, "
@@ -67,6 +59,15 @@ LANG = {
             "Why it matters: It highlights your strengths (e.g., fast and accurate stages) and weaknesses "
             "(e.g., slow or low-scoring stages), helping you focus your training on specific skills."
         ),
+        "match_history_header": "Match History",
+        "match_history_text": (
+            "This chart shows your placement history across the selected matches. "
+            "You can switch between percentage-based views and standing-based views to compare "
+            "your results against the full division, your class, and the non-M/GM reference lines."
+        ),
+        "history_metric": "History metric",
+        "percentage": "Percentage",
+        "standing": "Standing",
         "show_stage_points": "Show stage points",
         "show_stage_points_help": "Show individual stage points on scatter chart",
         "show_centroid_labels": "Show centroid labels",
@@ -99,6 +100,8 @@ LANG = {
         "power_factor_help": "Filtra per power factor (es. Minor / Major)",
         "match_year": "Anno",
         "match_year_help": "Filtra i match per anno",
+        "championship": "Campionato",
+        "championship_help": "Filtra i match per campionato",
         "shooter_div": "Divisione Tiratore",
         "shooter_div_help": "Filtra i risultati per divisione del tiratore",
         "match_levels": "Livelli Match",
@@ -117,16 +120,6 @@ LANG = {
             "Una linea collega i punteggi mediani tra i match per evidenziare l'andamento nel tempo.\n\n"
             "Perché è utile: ti permette rapidamente di capire quale sia stata la tua performance mediana e il livello di costanza in gara (ampiezza del box)."
         ),
-        "class_pred_header": "Predizione della Classe in base alle Prestazioni",
-        "class_pred_left_text": (
-            "Questo grafico si concentra sulle tue prestazioni personali nei vari match. "
-            "Ogni bolla rappresenta un match, posizionata per nome match e mediana del tuo punteggio. "
-            "La dimensione della bolla indica la tua costanza (più grande = più costante), "
-            "e i colori indicano la classe prevista (es. A, B). "
-            "Una linea collega i punteggi per mostrare i progressi nel tempo.\n\n"
-            "Perché è utile: puoi vedere come evolvono costanza e livello, aiutandoti a fissare obiettivi "
-            "per salire di classe o mantenere stabilità nei match più difficili."
-        ),
         "stage_points_time_header": "Punti di Stage e Tempo",
         "stage_points_time_text": (
             "Questo grafico mostra i tuoi risultati per singolo stage (punti vs tempo) per ciascun match, "
@@ -135,6 +128,15 @@ LANG = {
             "Perché è utile: mette in evidenza punti di forza (es. stage veloci e precisi) e debolezze "
             "(es. lenti o con pochi punti), aiutandoti a focalizzare l’allenamento su abilità specifiche."
         ),
+        "match_history_header": "Storico Match",
+        "match_history_text": (
+            "Questo grafico mostra l’andamento dei tuoi piazzamenti nei match selezionati. "
+            "Puoi passare da una vista percentuale a una vista per piazzamento per confrontare "
+            "i risultati nella divisione, nella tua classe e rispetto alle linee di riferimento non-M/GM."
+        ),
+        "history_metric": "Metrica storico",
+        "percentage": "Percentuale",
+        "standing": "Classifica",
         "show_stage_points": "Mostra punti stage",
         "show_stage_points_help": "Mostra i punti dei singoli stage nello scatter",
         "show_centroid_labels": "Mostra etichette centroidi",
@@ -154,7 +156,7 @@ def t(key: str, lang: str, **kwargs) -> str:
     base = LANG.get(lang, LANG["en"]).get(key, LANG["en"].get(key, key))
     return base.format(**kwargs) if kwargs else base
 
-# ========= SIDEBAR: LANGUAGE (persistente) =========
+# ========= SIDEBAR: LANGUAGE =========
 if "language" not in st.session_state:
     st.session_state.language = "it"
 
@@ -170,6 +172,23 @@ _ = lambda k, **kw: t(k, st.session_state.language, **kw)
 
 # ========= DATA =========
 stages = get_data("fitds_stages").copy()
+
+if "match_date" in stages.columns:
+    stages["match_date"] = pd.to_datetime(stages["match_date"], errors="coerce")
+
+if "shooter_div" not in stages.columns and "div" in stages.columns:
+    stages["shooter_div"] = stages["div"]
+
+if "stg_n" not in stages.columns and "stg" in stages.columns:
+    stages["stg_n"] = pd.to_numeric(stages["stg"], errors="coerce")
+elif "stg_n" in stages.columns:
+    stages["stg_n"] = pd.to_numeric(stages["stg_n"], errors="coerce")
+
+if "stg_match_pts" in stages.columns:
+    stages["stg_match_pts"] = pd.to_numeric(stages["stg_match_pts"], errors="coerce")
+
+if "championship" in stages.columns:
+    stages["championship"] = stages["championship"].astype(str)
 
 # ========= FILTERS =========
 st.sidebar.header(_("data_header"), help=_("data_header_help"))
@@ -203,7 +222,6 @@ st.session_state.selected_shooter = c1.selectbox(
     help=_("shooter_help")
 )
 
-# Stop page if no shooter is selected
 if st.session_state.selected_shooter == "-- Select shooter --":
     st.info(_("select_shooter_first"))
     st.stop()
@@ -215,7 +233,6 @@ sh_stages = (
     .copy()
 )
 
-# === add shooter_div filter ===
 if "shooter_div" not in sh_stages.columns and "div" in sh_stages.columns:
     sh_stages["shooter_div"] = sh_stages["div"]
 
@@ -235,14 +252,12 @@ if "shooter_div" in sh_stages.columns:
 else:
     shooter_div_filter = []
 
-# recompute metric AFTER filters are applied
 geom_perf_mean = aggregate_shooter_performance(sh_stages, stage_pct_col=f"{norm}_factor_perc")
 c4.metric(_("avg_performance", scope=norm_header), f"{geom_perf_mean['G']:.0%}")
 st.write("---")
 
 c1, c2 = st.sidebar.columns(2)
 
-# Division
 if "div" in sh_stages.columns:
     div_available = sorted(sh_stages["div"].dropna().unique().tolist())
     div_filter = c1.selectbox(_("division"), div_available, key="dd_div", help=_("division_help"))
@@ -250,7 +265,6 @@ if "div" in sh_stages.columns:
 else:
     div_filter = []
 
-# Power Factor
 if "power_factor" in sh_stages.columns:
     pf_available = sorted(sh_stages["power_factor"].dropna().unique().tolist())
     power_factor_filter = c2.selectbox(_("power_factor"), pf_available, key="dd_power_factor", help=_("power_factor_help"))
@@ -258,9 +272,7 @@ if "power_factor" in sh_stages.columns:
 else:
     power_factor_filter = []
 
-# Match Year
 if "match_year" not in sh_stages.columns and "match_date" in sh_stages.columns:
-    sh_stages["match_date"] = pd.to_datetime(sh_stages["match_date"], errors="coerce")
     sh_stages["match_year"] = sh_stages["match_date"].dt.year.astype("Int64")
 
 if "match_year" in sh_stages.columns:
@@ -279,7 +291,23 @@ if "match_year" in sh_stages.columns:
 else:
     year_filter = []
 
-# Levels
+# Championship BEFORE levels and matches
+if "championship" in sh_stages.columns:
+    championship_available = sorted(sh_stages["championship"].dropna().astype(str).unique().tolist())
+    if championship_available:
+        championship_filter = st.sidebar.multiselect(
+            _("championship"),
+            championship_available,
+            default=championship_available,
+            key="dd_championship",
+            help=_("championship_help")
+        )
+        sh_stages = sh_stages[sh_stages["championship"].astype(str).isin(championship_filter)]
+    else:
+        championship_filter = []
+else:
+    championship_filter = []
+
 if "match_level" in sh_stages.columns:
     levels_available = sorted(sh_stages["match_level"].dropna().unique().tolist())
     match_level_filter = st.sidebar.multiselect(
@@ -294,7 +322,6 @@ else:
     match_level_filter = []
     df_lvl = sh_stages.copy()
 
-# Matches
 if "match_date" in df_lvl.columns:
     matches_available = (
         df_lvl[["match_name", "match_date"]]
@@ -334,7 +361,6 @@ stage_n_preds = df.merge(
 )
 preds = get_data("class_predict_per_stage")
 
-# --- FIX: align stage key column names + ensure uniqueness for merge ---
 if "stg_n" not in df.columns and "stg" in df.columns:
     df = df.rename(columns={"stg": "stg_n"})
 if "stg_n" not in preds.columns and "stg" in preds.columns:
@@ -357,13 +383,69 @@ if dup_mask.any():
 
 stage_class_preds = df.merge(preds[cols], on=keys, how="left", validate="many_to_one")
 
+history_df = stages.copy()
+
+if "shooter_div" not in history_df.columns and "div" in history_df.columns:
+    history_df["shooter_div"] = history_df["div"]
+
+if shooter_div_filter and "shooter_div" in history_df.columns:
+    history_df = history_df[history_df["shooter_div"].isin(shooter_div_filter)]
+
+if div_filter and "div" in history_df.columns:
+    history_df = history_df[history_df["div"] == div_filter]
+
+if power_factor_filter and "power_factor" in history_df.columns:
+    history_df = history_df[history_df["power_factor"] == power_factor_filter]
+
+if "match_year" not in history_df.columns and "match_date" in history_df.columns:
+    history_df["match_year"] = history_df["match_date"].dt.year.astype("Int64")
+
+if year_filter and "match_year" in history_df.columns:
+    history_df = history_df[history_df["match_year"].isin(year_filter)]
+
+if championship_filter and "championship" in history_df.columns:
+    history_df = history_df[history_df["championship"].astype(str).isin(championship_filter)]
+
+if match_level_filter and "match_level" in history_df.columns:
+    history_df = history_df[history_df["match_level"].isin(match_level_filter)]
+
+if match_filter:
+    history_df = history_df[history_df["match_name"].isin(match_filter)]
+
 # ========= CHARTS =========
+title_c1, title_c2 = st.columns([5, 1], vertical_alignment="center")
+with title_c1:
+    st.subheader(_("match_history_header"))
+with title_c2:
+    history_metric_label = st.selectbox(
+        _("history_metric"),
+        [_("percentage"), _("standing")],
+        index=0,
+        key="dd_history_metric_in_perf",
+        label_visibility="collapsed",
+    )
+
+history_metric = "pct" if history_metric_label == _("percentage") else "rank"
+
+st.write(_("match_history_text"))
+
+if history_df.empty:
+    st.warning(_("no_data"))
+else:
+    shooter_match_history(
+        history_df,
+        shooter_name=st.session_state.selected_shooter,
+        shooter_div=div_filter if div_filter else (
+            sh_stages["shooter_div"].dropna().iloc[0]
+            if "shooter_div" in sh_stages.columns and not sh_stages.empty else None
+        ),
+        metric=history_metric,
+        lock_y=True,
+    )
+
 st.subheader(_("stage_perf_distr"))
-c1, c2 = st.columns([2, 1], vertical_alignment="top")
-with c1:
-    stage_distr(stage_class_preds, norm=norm, show_ref=show_ref, lock_axes=True)
-with c2:
-    st.write(_("stage_perf_distr_help_text"))
+st.write(_("stage_perf_distr_help_text"))
+stage_distr(stage_class_preds, norm=norm, show_ref=show_ref, lock_axes=True)
 
 st.subheader(_("stage_points_time_header"))
 st.write(_("stage_points_time_text"))
@@ -372,20 +454,21 @@ with c2:
     show_points = st.checkbox(_("show_stage_points"), value=True, key="dd_show_points", help=_("show_stage_points_help"))
     show_labels = st.checkbox(_("show_centroid_labels"), value=True, key="dd_labels", help=_("show_centroid_labels_help"))
     show_reg = st.checkbox(_("show_regression"), value=True, key="dd_show_reg", help=_("show_regression_help"))
+
+with c1:
     point_size = st.slider(_("stage_point_size"), 20, 200, 60, 10, key="dd_pt_size", help=_("stage_point_size_help"))
     point_opacity = st.slider(_("stage_point_opacity"), 0.2, 1.0, 0.6, 0.1, key="dd_pt_opacity", help=_("stage_point_opacity_help"))
     centroid_size = st.slider(_("centroid_size"), 80, 400, 220, 20, key="dd_centroid_size", help=_("centroid_size_help"))
 
-with c1:
-    stage_scatter(
-        stage_class_preds,
-        norm=norm,
-        point_size=point_size,
-        point_opacity=point_opacity,
-        centroid_size=centroid_size,
-        show_labels=show_labels,
-        show_ref=show_ref,
-        lock_axes=True,
-        show_points=show_points,
-        show_regression=show_reg
-    )
+stage_scatter(
+    stage_class_preds,
+    norm=norm,
+    point_size=point_size,
+    point_opacity=point_opacity,
+    centroid_size=centroid_size,
+    show_labels=show_labels,
+    show_ref=show_ref,
+    lock_axes=True,
+    show_points=show_points,
+    show_regression=show_reg
+)

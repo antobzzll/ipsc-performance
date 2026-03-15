@@ -925,6 +925,7 @@ def shooter_match_history(
     shooter_name: str,
     shooter_div: str,
     metric: str = "pct",   # "pct" or "rank"
+    show_ref: bool = True,
     lock_y: bool = False,
 ):
     import numpy as np
@@ -987,6 +988,7 @@ def shooter_match_history(
             {
                 "match_name": match_name,
                 "match_date": match_date,
+                "championship": shooter_row["championship"],
                 "shooter_name": shooter_name,
                 "shooter_div": shooter_div,
                 "shooter_class": shooter_row["shooter_class"],
@@ -995,6 +997,8 @@ def shooter_match_history(
                 "div_pct": pd.to_numeric(shooter_row["pct"], errors="coerce"),
                 "class_rank": pd.to_numeric(shooter_row["class_rank"], errors="coerce"),
                 "class_pct": pd.to_numeric(shooter_row["class_pct"], errors="coerce"),
+                "pct_abcd": pd.to_numeric(shooter_row["pct_abcd"], errors="coerce"),
+                "pct_abcd_minus_16": pd.to_numeric(shooter_row["pct_abcd_minus_16"], errors="coerce"),
             }
         )
 
@@ -1003,49 +1007,76 @@ def shooter_match_history(
         return
 
     plot_df = pd.DataFrame(rows).sort_values("match_date")
-    plot_df["match_label"] = plot_df.apply(
-        lambda r: f"{r['match_name']} ({r['match_date'].date()})"
-        if pd.notna(r["match_date"]) else str(r["match_name"]),
-        axis=1,
-    )
+    # plot_df["match_label"] = plot_df.apply(
+    #     lambda r: f"{r['match_name']} ({r['match_date'].date()})"
+    #     if pd.notna(r["match_date"]) else str(r["match_name"]),
+    #     axis=1,
+    # )
+    plot_df["match_label"] = plot_df["match_name"]  # simpler label; date is in hover
 
     if metric not in {"pct", "rank"}:
         st.info("metric must be 'pct' or 'rank'.")
         return
 
+    # Colors
+    div_color = "rgba(31, 119, 180, 1.0)"
+    faded_1 = "rgba(255, 127, 14, 0.45)"
+    faded_2 = "rgba(44, 160, 44, 0.45)"
+    faded_3 = "rgba(214, 39, 40, 0.45)"
+
     if metric == "pct":
         y_div = "div_pct"
         y_cls = "class_pct"
+        y_non_m_gm = "pct_abcd"
+        y_non_m_gm_m16 = "pct_abcd_minus_16"
+
+        ymax = plot_df[[y_div, y_cls, y_non_m_gm, y_non_m_gm_m16]].max(skipna=True).max()
         yaxis = dict(
             title="Percentage",
             tickformat=".0%",
-            range=[0, 1] if lock_y else None,
+            range=[0, max(1, float(ymax))] if lock_y and pd.notna(ymax) else None,
         )
+
         text_div = None
         text_cls = None
+        text_non_m_gm = None
+        text_non_m_gm_m16 = None
         textpos_div = None
         textpos_cls = None
+        textpos_non_m_gm = None
+        textpos_non_m_gm_m16 = None
+
         hover_div = "Division %: %{y:.1%}<extra></extra>"
         hover_cls = "Class %: %{y:.1%}<extra></extra>"
+        hover_non_m_gm = "Pct vs first non-M/GM: %{y:.1%}<extra></extra>"
+        hover_non_m_gm_m16 = "Pct vs first non-M/GM - 16 pts: %{y:.1%}<extra></extra>"
     else:
         y_div = "div_rank"
         y_cls = "class_rank"
+
         max_rank = pd.concat([plot_df[y_div], plot_df[y_cls]], axis=0).max(skipna=True)
         yaxis = dict(
             title="Standing",
             autorange="reversed",
             range=[float(max_rank) + 0.5, 0.5] if lock_y and pd.notna(max_rank) else None,
             dtick=1,
+            showticklabels=False,
+            ticks="",
+            showgrid=False,
+            zeroline=False,
         )
+
         text_div = plot_df[y_div].astype("Int64").astype(str)
         text_cls = plot_df[y_cls].astype("Int64").astype(str)
         textpos_div = "top center"
         textpos_cls = "bottom center"
+
         hover_div = "Division rank: %{y}<extra></extra>"
         hover_cls = "Class rank: %{y}<extra></extra>"
 
     fig = go.Figure()
 
+    # Division = solid/plain and fully opaque
     fig.add_trace(
         go.Scatter(
             x=plot_df["match_label"],
@@ -1054,6 +1085,9 @@ def shooter_match_history(
             name="Division",
             text=text_div,
             textposition=textpos_div,
+            line=dict(dash="solid", color=div_color, width=2.5),
+            marker=dict(color=div_color),
+            textfont=dict(color=div_color),
             customdata=np.column_stack([
                 plot_df["shooter_class"].fillna("").astype(str),
                 plot_df["stg_match_pts"].astype(float),
@@ -1067,6 +1101,7 @@ def shooter_match_history(
         )
     )
 
+    # Class = faded
     fig.add_trace(
         go.Scatter(
             x=plot_df["match_label"],
@@ -1075,6 +1110,9 @@ def shooter_match_history(
             name="Class",
             text=text_cls,
             textposition=textpos_cls,
+            line=dict(dash="dash", color=faded_1, width=2),
+            marker=dict(color=faded_1),
+            textfont=dict(color=faded_1),
             customdata=np.column_stack([
                 plot_df["shooter_class"].fillna("").astype(str),
                 plot_df["stg_match_pts"].astype(float),
@@ -1088,6 +1126,64 @@ def shooter_match_history(
         )
     )
 
+    if metric == "pct":
+        fig.add_trace(
+            go.Scatter(
+                x=plot_df["match_label"],
+                y=plot_df[y_non_m_gm],
+                mode="lines+markers+text",
+                name="ABCD Recalculated",
+                text=text_non_m_gm,
+                textposition=textpos_non_m_gm,
+                line=dict(dash="dot", color=faded_2, width=2),
+                marker=dict(color=faded_2),
+                textfont=dict(color=faded_2),
+                customdata=np.column_stack([
+                    plot_df["shooter_class"].fillna("").astype(str),
+                    plot_df["stg_match_pts"].astype(float),
+                ]),
+                hovertemplate=(
+                    "Match: %{x}<br>"
+                    "Class: %{customdata[0]}<br>"
+                    "Match pts: %{customdata[1]:.2f}<br>"
+                    + hover_non_m_gm
+                ),
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=plot_df["match_label"],
+                y=plot_df[y_non_m_gm_m16],
+                mode="lines+markers+text",
+                name="ABCD Recalculated - 16 pts",
+                text=text_non_m_gm_m16,
+                textposition=textpos_non_m_gm_m16,
+                line=dict(dash="dashdot", color=faded_3, width=2),
+                marker=dict(color=faded_3),
+                textfont=dict(color=faded_3),
+                customdata=np.column_stack([
+                    plot_df["shooter_class"].fillna("").astype(str),
+                    plot_df["stg_match_pts"].astype(float),
+                ]),
+                hovertemplate=(
+                    "Match: %{x}<br>"
+                    "Class: %{customdata[0]}<br>"
+                    "Match pts: %{customdata[1]:.2f}<br>"
+                    + hover_non_m_gm_m16
+                ),
+            )
+        )
+    if show_ref:
+        fig.add_hline(
+            y=0.5,
+            line_dash="dash",
+            line_color="gray",
+            line_width=2,
+            annotation_text="50%",
+            annotation_position="top left",
+        )
+        
     fig.update_layout(
         template="plotly_white",
         margin=dict(l=10, r=10, t=10, b=10),
@@ -1104,4 +1200,4 @@ def shooter_match_history(
     )
 
     st.plotly_chart(fig, use_container_width=True)
-    print(plot_df)
+    # print(plot_df[["match_name", "championship", y_div, y_cls, y_non_m_gm, y_non_m_gm_m16]])

@@ -100,130 +100,194 @@ def load_fitds_stages_core(path: str) -> pd.DataFrame:
 def class_predict(
     stages: pd.DataFrame,
     *,
-    min_class_n: int = 8,       # min observations to define a class band in a match/div
-    min_stage_n: int = 3,       # min stages to compute a shooter median
-    min_stage_n_consistency: int = 5,  # min stages to trust shooter IQR for consistency
-    consistency_threshold: float = 0.7 # ≥70% of shooter IQR inside class IQR → "consistent"
+    min_class_n: int = 8,                 # min shooters to define a class band in a match/div
+    min_stage_n: int = 3,                 # min stages to compute a shooter median
+    min_stage_n_consistency: int = 5,     # min stages to trust shooter IQR for consistency
+    consistency_threshold: float = 0.7,   # ≥70% of shooter IQR inside class IQR → "consistent"
+    robust_scale_floor: float = 1e-6,     # floor for robust z denominator
 ) -> pd.DataFrame:
     """
     Required columns in `stages`:
       ['match_name','shooter_div','shooter_class','shooter_name','div_factor_perc']
 
-    Returns one row per (shooter, match_name, div) with:
+    Logic:
+    - Compute one row per shooter / match / division using the shooter's stage median.
+    - Build class bands from the distribution of SHOOTER medians (not raw stage rows).
+    - Predict the closest class band in the same match/division.
+    - Compute consistency by comparing the shooter's IQR with the chosen class IQR.
+
+    Returns one row per (shooter, match_name, shooter_div) with:
       ['shooter_name','match_name','shooter_div','n_stages','sh_median',
        'pred_class','relation','dist_to_class_median',
        'q1','class_median','q3','n_in_class',
        'robust_z_class',
        'sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']
     """
-    needed = {'match_name','shooter_div','shooter_class','shooter_name','div_factor_perc'}
+    needed = {"match_name", "shooter_div", "shooter_class", "shooter_name", "div_factor_perc"}
     miss = needed - set(stages.columns)
     if miss:
         raise KeyError(f"Missing columns: {sorted(miss)}")
 
     df = stages.copy()
-    df['div_factor_perc'] = pd.to_numeric(df['div_factor_perc'], errors='coerce')
+    df["div_factor_perc"] = pd.to_numeric(df["div_factor_perc"], errors="coerce")
 
-    # --- Shooter summary per (shooter, match, div)
-    shooter_sum = (
-        df.groupby(['shooter_name','match_name','shooter_div'])['div_factor_perc']
-          .agg(n_stages='count', sh_median='median')
-          .reset_index()
+    # ------------------------------------------------------------
+    # 1) Shooter summary per (shooter, match, div, actual class)
+    # ------------------------------------------------------------
+    shooter_base = (
+        df.groupby(
+            ["shooter_name", "match_name", "shooter_div", "shooter_class"],
+            dropna=False
+        )["div_factor_perc"]
+        .agg(n_stages="count", sh_median="median")
+        .reset_index()
     )
-    shooter_sum = shooter_sum[shooter_sum['n_stages'] >= min_stage_n].copy()
-    if shooter_sum.empty:
-        return pd.DataFrame(columns=[
-            'shooter_name','match_name','shooter_div','n_stages','sh_median',
-            'pred_class','relation','dist_to_class_median',
-            'q1','class_median','q3','n_in_class',
-            'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent'
-        ])
+    shooter_base = shooter_base[shooter_base["n_stages"] >= min_stage_n].copy()
 
-    # --- Class bands per (match, div, class)
+    empty_cols = [
+        "shooter_name", "match_name", "shooter_div", "n_stages", "sh_median",
+        "pred_class", "relation", "dist_to_class_median",
+        "q1", "class_median", "q3", "n_in_class",
+        "robust_z_class", "sh_q1", "sh_q3", "sh_iqr",
+        "consistency_cover", "consistent"
+    ]
+
+    if shooter_base.empty:
+        return pd.DataFrame(columns=empty_cols)
+
+    shooter_sum = shooter_base[
+        ["shooter_name", "match_name", "shooter_div", "n_stages", "sh_median"]
+    ].copy()
+
+    # ------------------------------------------------------------
+    # 2) Class bands from SHOOTER medians, not raw stage rows
+    # ------------------------------------------------------------
     class_bands = (
-        df.groupby(['match_name','shooter_div','shooter_class'])['div_factor_perc']
-          .agg(n_in_class='count',
-               q1=lambda s: s.quantile(0.25),
-               class_median='median',
-               q3=lambda s: s.quantile(0.75))
-          .reset_index()
+        shooter_base.groupby(
+            ["match_name", "shooter_div", "shooter_class"],
+            dropna=False
+        )["sh_median"]
+        .agg(
+            n_in_class="count",               # shooters in class band
+            q1=lambda s: s.quantile(0.25),
+            class_median="median",
+            q3=lambda s: s.quantile(0.75),
+        )
+        .reset_index()
     )
-    class_bands = class_bands[class_bands['n_in_class'] >= min_class_n].copy()
+    class_bands = class_bands[class_bands["n_in_class"] >= min_class_n].copy()
+
     if class_bands.empty:
         out = shooter_sum.copy()
-        out[['pred_class','relation','dist_to_class_median',
-             'q1','class_median','q3','n_in_class',
-             'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']] = np.nan
-        return out
+        out[[
+            "pred_class", "relation", "dist_to_class_median",
+            "q1", "class_median", "q3", "n_in_class",
+            "robust_z_class", "sh_q1", "sh_q3", "sh_iqr",
+            "consistency_cover", "consistent"
+        ]] = np.nan
+        return out[empty_cols]
 
-    # --- Join candidates (all classes in same match/div for each shooter summary)
-    cand = shooter_sum.merge(class_bands, on=['match_name','shooter_div'], how='left')
-    cand = cand[cand['q1'].notna()].copy()
+    # ------------------------------------------------------------
+    # 3) Join shooter summaries to all candidate class bands
+    # ------------------------------------------------------------
+    cand = shooter_sum.merge(class_bands, on=["match_name", "shooter_div"], how="left")
+    cand = cand[cand["q1"].notna()].copy()
+
     if cand.empty:
         out = shooter_sum.copy()
-        out[['pred_class','relation','dist_to_class_median',
-             'q1','class_median','q3','n_in_class',
-             'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']] = np.nan
-        return out
+        out[[
+            "pred_class", "relation", "dist_to_class_median",
+            "q1", "class_median", "q3", "n_in_class",
+            "robust_z_class", "sh_q1", "sh_q3", "sh_iqr",
+            "consistency_cover", "consistent"
+        ]] = np.nan
+        return out[empty_cols]
 
-    # Selection signals
-    cand['within_iqr'] = (cand['sh_median'] >= cand['q1']) & (cand['sh_median'] <= cand['q3'])
-    cand['dist_to_class_median'] = (cand['sh_median'] - cand['class_median']).abs()
+    cand["within_iqr"] = (cand["sh_median"] >= cand["q1"]) & (cand["sh_median"] <= cand["q3"])
+    cand["dist_to_class_median"] = (cand["sh_median"] - cand["class_median"]).abs()
+    cand["_within_rank"] = np.where(cand["within_iqr"], 0, 1)
 
-    # Rank: within_IQR first, then closest median
-    cand['_within_rank'] = np.where(cand['within_iqr'], 0, 1)
-
+    # Tie-breaks:
+    # 1) inside class IQR
+    # 2) closest class median
+    # 3) larger class sample
+    # 4) alphabetical class as deterministic fallback
     picked = (
-        cand.sort_values(['shooter_name','match_name','shooter_div','_within_rank','dist_to_class_median'])
-            .groupby(['shooter_name','match_name','shooter_div'], as_index=False)
-            .first()
+        cand.sort_values(
+            [
+                "shooter_name", "match_name", "shooter_div",
+                "_within_rank", "dist_to_class_median", "n_in_class", "shooter_class"
+            ],
+            ascending=[True, True, True, True, True, False, True]
+        )
+        .groupby(["shooter_name", "match_name", "shooter_div"], as_index=False)
+        .first()
     )
 
-    # Relation vs chosen class band
+    # ------------------------------------------------------------
+    # 4) Relation vs chosen class band
+    # ------------------------------------------------------------
     def _relation(row):
-        if row['sh_median'] < row['q1']:
-            return 'Below Class IQR'
-        if row['sh_median'] > row['q3']:
-            return 'Above Class IQR'
-        return 'Within Class IQR'
+        if row["sh_median"] < row["q1"]:
+            return "Below Class IQR"
+        if row["sh_median"] > row["q3"]:
+            return "Above Class IQR"
+        return "Within Class IQR"
 
-    picked['relation'] = picked.apply(_relation, axis=1)
+    picked["relation"] = picked.apply(_relation, axis=1)
 
     # Robust z vs chosen class band
-    iqr = (picked['q3'] - picked['q1']).replace(0, np.nan)
-    robust_scale = iqr / 1.349
-    picked['robust_z_class'] = (picked['sh_median'] - picked['class_median']) / robust_scale
+    class_iqr = (picked["q3"] - picked["q1"]).replace(0, np.nan)
+    robust_scale = (class_iqr / 1.349).clip(lower=robust_scale_floor)
+    picked["robust_z_class"] = (picked["sh_median"] - picked["class_median"]) / robust_scale
 
-    # --- Consistency: shooter IQR (only if enough stages)
-    # compute per (shooter, match, div)
+    # ------------------------------------------------------------
+    # 5) Consistency: shooter IQR, only if enough stages
+    # ------------------------------------------------------------
     shooter_iqr = (
-        df.groupby(['shooter_name','match_name','shooter_div'])['div_factor_perc']
-          .agg(n='count',
-               sh_q1=lambda s: s.quantile(0.25),
-               sh_q3=lambda s: s.quantile(0.75))
-          .reset_index()
+        df.groupby(["shooter_name", "match_name", "shooter_div"], dropna=False)["div_factor_perc"]
+        .agg(
+            n="count",
+            sh_q1=lambda s: s.quantile(0.25),
+            sh_q3=lambda s: s.quantile(0.75),
+        )
+        .reset_index()
     )
-    shooter_iqr = shooter_iqr[shooter_iqr['n'] >= min_stage_n_consistency].copy()
-    shooter_iqr['sh_iqr'] = shooter_iqr['sh_q3'] - shooter_iqr['sh_q1']
-    shooter_iqr = shooter_iqr.drop(columns='n')
+    shooter_iqr = shooter_iqr[shooter_iqr["n"] >= min_stage_n_consistency].copy()
+    shooter_iqr["sh_iqr"] = shooter_iqr["sh_q3"] - shooter_iqr["sh_q1"]
+    shooter_iqr = shooter_iqr.drop(columns="n")
 
-    out = picked.merge(shooter_iqr, on=['shooter_name','match_name','shooter_div'], how='left')
+    out = picked.merge(
+        shooter_iqr,
+        on=["shooter_name", "match_name", "shooter_div"],
+        how="left"
+    )
 
-    # consistency_cover = proportion of shooter IQR inside chosen class IQR
-    # = length( intersection( [sh_q1, sh_q3], [q1, q3] ) ) / max(sh_iqr, eps)
+    # proportion of shooter IQR inside chosen class IQR
     eps = 1e-12
-    inter_len = np.maximum(0.0, np.minimum(out['sh_q3'], out['q3']) - np.maximum(out['sh_q1'], out['q1']))
-    out['consistency_cover'] = inter_len / (out['sh_iqr'].replace(0, np.nan) + eps)
-    # consistent if shooter has IQR and ≥ threshold
-    out['consistent'] = np.where(out['sh_iqr'].notna() & (out['consistency_cover'] >= consistency_threshold),
-                                 True, False)
+    inter_len = np.maximum(
+        0.0,
+        np.minimum(out["sh_q3"], out["q3"]) - np.maximum(out["sh_q1"], out["q1"])
+    )
+    out["consistency_cover"] = inter_len / (out["sh_iqr"].replace(0, np.nan) + eps)
+
+    # Distinguish "not consistent" from "not enough data"
+    out["consistent"] = pd.Series(pd.NA, index=out.index, dtype="boolean")
+    has_consistency_data = out["sh_iqr"].notna()
+    out.loc[has_consistency_data, "consistent"] = (
+        out.loc[has_consistency_data, "consistency_cover"] >= consistency_threshold
+    ).astype("boolean")
 
     # Final tidy
-    out = out.rename(columns={'shooter_class': 'pred_class'})
-    cols = ['shooter_name','match_name','shooter_div','n_stages','sh_median',
-            'pred_class','relation','dist_to_class_median',
-            'q1','class_median','q3','n_in_class',
-            'robust_z_class','sh_q1','sh_q3','sh_iqr','consistency_cover','consistent']
+    out = out.rename(columns={"shooter_class": "pred_class"})
+
+    cols = [
+        "shooter_name", "match_name", "shooter_div", "n_stages", "sh_median",
+        "pred_class", "relation", "dist_to_class_median",
+        "q1", "class_median", "q3", "n_in_class",
+        "robust_z_class", "sh_q1", "sh_q3", "sh_iqr",
+        "consistency_cover", "consistent"
+    ]
     return out[cols]
 
 def class_predict_per_stage(

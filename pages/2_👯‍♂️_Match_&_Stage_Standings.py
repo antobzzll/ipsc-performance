@@ -16,6 +16,8 @@ LANG = {
         "data_header_help": "Affect all tables and metrics on this page",
         "match": "Match",
         "match_help": "Select the match to analyze",
+        "select_match_first": "Select a match to display the analysis.",
+        "match_placeholder": "-- Select match --",
         "division": "Division",
         "division_help": "Select the shooter division",
         "stage": "Stage",
@@ -52,6 +54,8 @@ LANG = {
         "data_header_help": "Influenza tutte le tabelle e metriche di questa pagina",
         "match": "Match",
         "match_help": "Seleziona il match da analizzare",
+        "select_match_first": "Seleziona un match per visualizzare l’analisi.",
+        "match_placeholder": "-- Seleziona match --",
         "division": "Divisione",
         "division_help": "Seleziona la divisione del tiratore",
         "stage": "Stage",
@@ -141,23 +145,31 @@ else:
     matches_df = matches_df.sort_values(["match_name"])
     matches_df["match_label"] = matches_df["match_name"].astype(str)
 
-match_labels = matches_df["match_label"].tolist()
-if not match_labels:
+match_placeholder = _("match_placeholder")
+match_labels = [match_placeholder] + matches_df["match_label"].tolist()
+
+if len(match_labels) == 1:
     st.warning(_("no_data"))
     st.stop()
 
 if "selected_match_analysis_label" not in st.session_state:
-    st.session_state.selected_match_analysis_label = match_labels[0]
+    st.session_state.selected_match_analysis_label = match_placeholder
+
+if st.session_state.selected_match_analysis_label not in match_labels:
+    st.session_state.selected_match_analysis_label = match_placeholder
 
 selected_match_label = st.sidebar.selectbox(
     _("match"),
     options=match_labels,
-    index=match_labels.index(st.session_state.selected_match_analysis_label)
-    if st.session_state.selected_match_analysis_label in match_labels else 0,
+    index=match_labels.index(st.session_state.selected_match_analysis_label),
     key="dd_match_analysis_match",
     help=_("match_help"),
 )
 st.session_state.selected_match_analysis_label = selected_match_label
+
+if selected_match_label == match_placeholder:
+    st.info(_("select_match_first"))
+    st.stop()
 
 selected_match_row = matches_df.loc[matches_df["match_label"] == selected_match_label].iloc[0]
 selected_match_name = selected_match_row["match_name"]
@@ -176,7 +188,10 @@ if not divisions:
     st.warning(_("no_data"))
     st.stop()
 
-if "selected_match_analysis_division" not in st.session_state or st.session_state.selected_match_analysis_division not in divisions:
+if (
+    "selected_match_analysis_division" not in st.session_state
+    or st.session_state.selected_match_analysis_division not in divisions
+):
     st.session_state.selected_match_analysis_division = divisions[0]
 
 selected_division = st.sidebar.selectbox(
@@ -207,7 +222,10 @@ if "stg_n" in match_df.columns:
 
 selected_stage = None
 if stage_options:
-    if "selected_match_analysis_stage" not in st.session_state or st.session_state.selected_match_analysis_stage not in stage_options:
+    if (
+        "selected_match_analysis_stage" not in st.session_state
+        or st.session_state.selected_match_analysis_stage not in stage_options
+    ):
         st.session_state.selected_match_analysis_stage = stage_options[0]
 
     selected_stage = st.sidebar.selectbox(
@@ -315,7 +333,7 @@ if show_stage_summary and "stg_n" in match_df.columns:
     )
 
     st.dataframe(stage_summary, use_container_width=True, hide_index=True)
-    
+
 # ========= STAGE STANDING =========
 if show_stage_standing and selected_stage is not None:
     st.subheader(_("stage_standing_header"))
@@ -323,8 +341,6 @@ if show_stage_standing and selected_stage is not None:
         st.info(_("no_data"))
     else:
         st.dataframe(stage_stand, use_container_width=True, hide_index=True)
-
-
 
 # ========= RAW ROWS =========
 if show_raw_rows:

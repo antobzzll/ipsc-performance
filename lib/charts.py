@@ -289,20 +289,53 @@ def stage_scatter(
     import plotly.graph_objects as go
     import streamlit as st
 
+    def first_nonempty(series: pd.Series) -> str:
+        s = series.dropna().astype(str).str.strip()
+        s = s[s != ""]
+        return s.iloc[0] if not s.empty else ""
+
+    def mode_nonempty(series: pd.Series) -> str:
+        s = series.dropna().astype(str).str.strip()
+        s = s[s != ""]
+        if s.empty:
+            return ""
+        m = s.mode()
+        return m.iloc[0] if not m.empty else s.iloc[0]
+
     y_label_prefix = "Division" if norm == "div" else "Class"
     x_label_prefix = "Division" if norm == "div" else "Class"
     y = f"{norm}_pts_perc"
     x = f"{norm}_time_perc"
     f = f"{norm}_factor_perc"
 
-    needed = ["match_date", y, x, "match_name", "stg_n", f, "pred_class"]
-    missing = [c for c in needed if c not in df.columns]
+    required = ["match_date", y, x, "match_name", "stg_n", f]
+    missing = [c for c in required if c not in df.columns]
     if missing:
         st.info(f"Missing required columns for scatter: {missing}")
         return
 
+    # Optional prediction columns:
+    # - stage-level prediction: pred_class
+    # - match-level prediction: try common names first
+    match_pred_candidates = [
+        "match_pred_class",
+        "pred_class_match",
+        "overall_pred_class",
+        "pred_class_overall",
+        "match_class_pred",
+        "match_predicted_class",
+    ]
+    match_pred_col = next((c for c in match_pred_candidates if c in df.columns), None)
+    has_stage_pred = "pred_class" in df.columns
+
+    keep_cols = required.copy()
+    if has_stage_pred:
+        keep_cols.append("pred_class")
+    if match_pred_col is not None:
+        keep_cols.append(match_pred_col)
+
     # Prepare working dataframe
-    sdf = df[needed].copy()
+    sdf = df[keep_cols].copy()
 
     # Numeric conversion
     for col in [x, y, f, "stg_n"]:
@@ -322,7 +355,7 @@ def stage_scatter(
         return
 
     sdf = sdf.sort_values("match_date")
-    sdf = sdf.rename(columns={x: "Time (%)", y: "Points (%)"})
+    sdf = sdf.rename(columns={x: "Time (%)", y: "Points (%)", f: "Result (%)"})
 
     # Detect scale
     tmax = sdf["Time (%)"].max(skipna=True)
@@ -349,6 +382,26 @@ def stage_scatter(
         )
         .rename(columns={"mean_time": "Time (%)", "mean_points": "Points (%)"})
     )
+
+    # Add one class prediction per match for centroid hover
+    if match_pred_col is not None:
+        match_pred_df = (
+            sdf.groupby("match_name", as_index=False)[match_pred_col]
+            .agg(first_nonempty)
+            .rename(columns={match_pred_col: "match_pred_class"})
+        )
+    elif has_stage_pred:
+        match_pred_df = (
+            sdf.groupby("match_name", as_index=False)["pred_class"]
+            .agg(mode_nonempty)
+            .rename(columns={"pred_class": "match_pred_class"})
+        )
+    else:
+        match_pred_df = cent[["match_name"]].copy()
+        match_pred_df["match_pred_class"] = ""
+
+    cent = cent.merge(match_pred_df, on="match_name", how="left")
+    cent["match_pred_class"] = cent["match_pred_class"].fillna("").astype(str)
     cent["label"] = cent["match_name"]
 
     if cent.empty:
@@ -387,9 +440,12 @@ def stage_scatter(
 
             point_plotly_size = int((point_size / np.pi) ** 0.5 * 2)
 
-            pred_vals = match_df["pred_class"].fillna("").astype(str).to_numpy()
-            result_vals = pd.to_numeric(match_df[f], errors="coerce").to_numpy()
+            if has_stage_pred:
+                pred_vals = match_df["pred_class"].fillna("").astype(str).to_numpy()
+            else:
+                pred_vals = np.array([""] * len(match_df), dtype=object)
 
+            result_vals = pd.to_numeric(match_df["Result (%)"], errors="coerce").to_numpy()
             customdata = np.column_stack([result_vals, pred_vals])
 
             fig.add_trace(
@@ -406,7 +462,7 @@ def stage_scatter(
                     text=match_df["stg_n"].astype("Int64").astype(str),
                     customdata=customdata,
                     hovertemplate=(
-                        "Match: %{data.name}<br>"
+                        "Match: %{fullData.name}<br>"
                         "Stage: %{text}<br>"
                         "Predicted Class: %{customdata[1]}<br>"
                         f"Result: %{{customdata[0]:{format_str}}}<br>"
@@ -424,6 +480,9 @@ def stage_scatter(
             continue
 
         centroid_plotly_size = int((centroid_size / np.pi) ** 0.5 * 2)
+        centroid_customdata = np.column_stack(
+            [match_cent["match_pred_class"].replace("", "—").to_numpy()]
+        )
 
         fig.add_trace(
             go.Scatter(
@@ -437,8 +496,10 @@ def stage_scatter(
                     line=dict(color="black", width=1),
                 ),
                 name=match,
+                customdata=centroid_customdata,
                 hovertemplate=(
-                    "Match: %{data.name}<br>"
+                    "Match: %{fullData.name}<br>"
+                    "Predicted Class: %{customdata[0]}<br>"
                     f"Time: %{{x:{format_str}}}<br>"
                     f"Points: %{{y:{format_str}}}<extra></extra>"
                 ),

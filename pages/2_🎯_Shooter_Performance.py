@@ -18,15 +18,19 @@ LANG = {
         "per_division": "Per Division",
         "per_class": "Per Class",
         "norm_help": "Normalize metrics and charts per division or per class",
+        "true_points": "Show absolute stage points",
+        "true_points_help": "If selected, stage points use absolute stage points percentage instead of division/class normalized points",
         "filters_header": "Filters",
         "shooter": "Shooter",
         "shooter_help": "Select shooter to analyze",
         "select_shooter_first": "Select a shooter to display the analysis.",
         "avg_performance": "AVG {scope} Performance",
         "avg_stage_pts_pct": "AVG {scope} Stage Points %",
+        "avg_stage_pts_pct_true": "AVG Absolute Stage Points %",
         "avg_stage_time_pct": "AVG {scope} Stage Time %",
         "avg_performance_help": "Average of normalized hit factor percentage across the selected stages and matches",
         "avg_stage_pts_pct_help": "Average of normalized stage points percentage across the selected stages and matches",
+        "avg_stage_pts_pct_true_help": "Average of absolute stage points percentage across the selected stages and matches",
         "avg_stage_time_pct_help": "Average of normalized stage time percentage across the selected stages and matches",
         "division": "Division",
         "division_help": "Filter by division (e.g., Production / Open / Standard)",
@@ -91,15 +95,19 @@ LANG = {
         "per_division": "Per Divisione",
         "per_class": "Per Classe",
         "norm_help": "Normalizza metriche e grafici per divisione o per classe",
+        "true_points": "Mostra percentuale punti stage assoluta",
+        "true_points_help": "Se selezionato, i punti stage usano la percentuale assoluta invece della normalizzazione per divisione/classe",
         "filters_header": "Filtri",
         "shooter": "Tiratore",
         "shooter_help": "Seleziona il tiratore da analizzare",
         "select_shooter_first": "Seleziona un tiratore per visualizzare l’analisi.",
         "avg_performance": "Media Prestazioni {scope}",
         "avg_stage_pts_pct": "Media % Punti Stage {scope}",
+        "avg_stage_pts_pct_true": "Media % Punti Stage Assoluti",
         "avg_stage_time_pct": "Media % Tempo Stage {scope}",
         "avg_performance_help": "Media della percentuale normalizzata di hit factor sugli stage e match selezionati",
         "avg_stage_pts_pct_help": "Media della percentuale normalizzata di punti stage sugli stage e match selezionati",
+        "avg_stage_pts_pct_true_help": "Media della percentuale assoluta di punti stage sugli stage e match selezionati",
         "avg_stage_time_pct_help": "Media della percentuale normalizzata di tempo stage sugli stage e match selezionati",
         "division": "Divisione",
         "division_help": "Filtra per divisione (es. Production / Open / Standard)",
@@ -275,14 +283,22 @@ normalization = st.sidebar.selectbox(
     help=_("norm_help"),
 )
 
-norm = "div" if normalization == _("per_division") else "class"
+true_points = st.sidebar.checkbox(
+    _("true_points"),
+    value=True,
+    key="dd_true_pts",
+    help=_("true_points_help"),
+)
+
+norm = "div" if normalization == _("per_division") else "cls"
 norm_header = "Division" if norm == "div" else "Class"
 
-factor_col = "div_factor_perc" if norm == "div" else "cls_factor_perc"
-pts_col = "div_pts_perc" if norm == "div" else "cls_pts_perc"
-time_col = "div_time_perc" if norm == "div" else "cls_time_perc"
+factor_col = f"{norm}_factor_perc"
+norm_pts_col = f"{norm}_pts_perc"
+pts_col = "pts_pct" if true_points else norm_pts_col
+time_col = f"{norm}_time_perc"
 
-chart_norm = "div" if norm == "div" else "cls"
+chart_norm = norm
 
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
 
@@ -452,9 +468,9 @@ top_c2.metric(
 )
 
 top_c3.metric(
-    _("avg_stage_pts_pct", scope=norm_header),
+    _("avg_stage_pts_pct_true") if true_points else _("avg_stage_pts_pct", scope=norm_header),
     f"{avg_pts:.0%}" if pd.notna(avg_pts) else "—",
-    help=_("avg_stage_pts_pct_help"),
+    help=_("avg_stage_pts_pct_true_help") if true_points else _("avg_stage_pts_pct_help"),
 )
 
 top_c4.metric(
@@ -595,4 +611,5 @@ stage_scatter(
     lock_axes=True,
     show_points=show_points,
     show_regression=show_reg,
+    true_pts=true_points,
 )

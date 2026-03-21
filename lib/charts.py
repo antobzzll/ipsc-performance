@@ -282,12 +282,8 @@ def stage_scatter(
     lock_axes: bool = True,
     show_points: bool = True,
     show_regression: bool = False,
+    true_pts: bool = False
 ):
-    import numpy as np
-    import pandas as pd
-    import plotly.colors as pc
-    import plotly.graph_objects as go
-    import streamlit as st
 
     def first_nonempty(series: pd.Series) -> str:
         s = series.dropna().astype(str).str.strip()
@@ -302,9 +298,16 @@ def stage_scatter(
         m = s.mode()
         return m.iloc[0] if not m.empty else s.iloc[0]
 
-    y_label_prefix = "Division" if norm == "div" else "Class"
-    x_label_prefix = "Division" if norm == "div" else "Class"
-    y = f"{norm}_pts_perc"
+
+    if true_pts:
+        y_label_prefix = ""
+        x_label_prefix = "Division" if norm == "div" else "Class"
+        y = 'pts_pct'
+    else:
+        y_label_prefix = "Division" if norm == "div" else "Class"
+        x_label_prefix = "Division" if norm == "div" else "Class"
+        y = f"{norm}_pts_perc"
+    
     x = f"{norm}_time_perc"
     f = f"{norm}_factor_perc"
 
@@ -616,186 +619,6 @@ def stage_scatter(
 
     st.plotly_chart(fig, use_container_width=True)
     
-def class_bubble(
-    df: pd.DataFrame,
-    shooter: str,
-    *,
-    x_domain: tuple[str, str] | None = None,
-    y_domain: tuple[float, float] | None = None,
-    size_range: tuple[int, int] = (60, 900),   # area-like scale
-    show_legend: bool = True,
-    show_ref: bool = True,
-):
-    needed = {
-        "shooter_name", "match_name", "match_date", "shooter_div",
-        "pred_class", "relation", "sh_median", "consistency_cover"
-    }
-    miss = needed - set(df.columns)
-    if miss:
-        st.info(f"Bubble map needs columns: {sorted(miss)}")
-        return
-
-    d = df.loc[df["shooter_name"] == shooter].copy()
-    if d.empty:
-        st.info("No data for the specified shooter.")
-        return
-
-    # --- Prep & ordering ---
-    d["match_date"] = pd.to_datetime(d["match_date"], errors="coerce")
-    d["consistency_cover"] = pd.to_numeric(d["consistency_cover"], errors="coerce")
-
-    match_order = (
-        d[["match_name", "match_date"]]
-        .drop_duplicates()
-        .sort_values("match_date")["match_name"]
-        .tolist()
-    )
-    d = d.sort_values("match_date")
-
-    # --- Y formatting (percent vs absolute) ---
-    frac = pd.to_numeric(d["sh_median"], errors="coerce").max(skipna=True) <= 1.5
-    fmt  = ".0%" if frac else ".0f"
-
-    # --- Axes domains (optional external control) ---
-    if x_domain is None and match_order:
-        x_domain = (match_order[0], match_order[-1])
-
-    if y_domain is None:
-        vals = pd.to_numeric(d["sh_median"], errors="coerce")
-        if vals.notna().any():
-            pad = 0.02 * (vals.max() - vals.min() + 1e-12)
-            y_domain = (float(vals.min() - pad), float(vals.max() + pad))
-
-    # --- Normalize relation & colors ---
-    def _norm_rel(x: str) -> str:
-        x = str(x).strip().lower()
-        if "within" in x: return "within"
-        if "above"  in x: return "above"
-        if "below"  in x: return "below"
-        return x
-
-    def _label_rel(n: str) -> str:
-        return {
-            "within": "Within Class IQR",
-            "above":  "Above Class IQR",
-            "below":  "Below Class IQR",
-        }.get(n, n.title())
-
-    d["rel_norm"]   = d["relation"].map(_norm_rel)
-    d["rel_label"]  = d["rel_norm"].map(_label_rel)
-
-    stroke_colors = {"within": "#1565c0", "above": "#2e7d32", "below": "#ef6c00"}  # green/blue/orange
-
-    # --- Figure ---
-    fig = go.Figure()
-
-    # Guide line for trajectory
-    guide_data = (
-        d[["match_name", "match_date", "sh_median"]]
-        .drop_duplicates()
-        .sort_values("match_date")
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=guide_data["match_name"],
-            y=guide_data["sh_median"],
-            mode="lines",
-            line=dict(color="#9e9e9e", width=3, dash="dot"),
-            opacity=0.25,
-            name="Guide",
-            showlegend=False,
-            hoverinfo="skip",
-        )
-    )
-
-    # --- One trace per relation (so legend shows relation only) ---
-    for rel in ["within", "above", "below"]:
-        subset = d[d["rel_norm"] == rel]
-        if subset.empty:
-            continue
-
-        # Convert consistency (0..1) to Plotly marker sizes (diameter-ish)
-        sizes = subset["consistency_cover"].fillna(0).apply(
-            lambda x: float(np.sqrt(np.interp(x, [0, 1], [size_range[0]/np.pi, size_range[1]/np.pi])) * 2.0)
-        )
-
-        # Use neutral fill + colored stroke; put pred_class TEXT inside
-        fig.add_trace(
-            go.Scatter(
-                x=subset["match_name"],
-                y=subset["sh_median"],
-                mode="markers+text",
-                text=subset["pred_class"],
-                textposition="middle center",
-                textfont=dict(size=12, color="#1f1f1f"),
-                marker=dict(
-                    size=sizes,
-                    color="rgba(0,0,0,0.00)",  # neutral, semi-transparent fill
-                    line=dict(color=stroke_colors.get(rel, "black"), width=3.0),
-                ),
-                name=_label_rel(rel),
-                showlegend=show_legend,
-                customdata=subset[["match_name", "shooter_div", "pred_class", "relation", "sh_median", "consistency_cover"]],
-                hovertemplate=(
-                    "Match: %{customdata[0]}<br>"
-                    "Division: %{customdata[1]}<br>"
-                    "Predicted Class: %{customdata[2]}<br>"
-                    "Relation: %{customdata[3]}<br>"
-                    f"Shooter Median: %{{customdata[4]:{fmt}}}<br>"
-                    "Consistency: %{customdata[5]:.0%}<extra></extra>"
-                ),
-            )
-        )
-
-    # Reference line at 50% (optional)
-    if show_ref:
-        ref_val = 0.5 if frac else 50
-        fig.add_hline(
-            y=ref_val,
-            line_dash="dash",
-            line_color="gray",
-            line_width=2,
-            annotation_text=f"{ref_val:.0%}" if frac else f"{ref_val}",
-            annotation_position="top left",
-        )
-
-    # Layout / axes
-    x_axis = dict(
-        categoryorder="array",
-        categoryarray=match_order,
-        tickangle=45,
-        showgrid=False,
-        autorange=True,
-        # title="Match",
-    )
-    y_axis = dict(
-        title="Shooter Median",
-        tickformat=fmt,
-        range=y_domain,
-        showgrid=True,
-        autorange=True,
-    )
-
-    fig.update_layout(
-        xaxis=x_axis,
-        yaxis=y_axis,
-        showlegend=show_legend,
-        legend=dict(
-            title="Relation",
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="center",
-            x=0.5,
-        ) if show_legend else None,
-        template="plotly_white",
-        hovermode="closest",
-        autosize=True,
-        margin=dict(l=10, r=10, t=10, b=10),
-    )
-
-    # Render
-    st.plotly_chart(fig, use_container_width=True)
 
 def match_count(
     df: pd.DataFrame,
@@ -1262,3 +1085,131 @@ def shooter_match_history(
 
     st.plotly_chart(fig, use_container_width=True)
     # print(plot_df[["match_name", "championship", y_div, y_cls, y_non_m_gm, y_non_m_gm_m16]])
+
+
+def compare_shooters_line(
+    df: pd.DataFrame,
+    shooter_1: str,
+    shooter_2: str,
+    metric_col: str,
+    y_title: str,
+    *,
+    show_ref: bool = True,
+    show_markers: bool = True,
+    ref_val: float = 0.5,
+):
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import streamlit as st
+
+    needed = {"shooter_name", "match_name", metric_col}
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.info(f"Missing required columns for comparison chart: {missing}")
+        return
+
+    sdf = df[df["shooter_name"].isin([shooter_1, shooter_2])].copy()
+
+    if sdf.empty:
+        st.info("No data to plot.")
+        return
+
+    group_cols = ["shooter_name", "match_name"]
+    if "match_date" in sdf.columns:
+        group_cols.append("match_date")
+
+    plot_df = (
+        sdf.groupby(group_cols, dropna=False)[metric_col]
+        .mean()
+        .reset_index()
+        .rename(columns={metric_col: "metric_value"})
+    )
+
+    if plot_df.empty:
+        st.info("No data to plot.")
+        return
+
+    if "match_date" in plot_df.columns:
+        plot_df["match_date"] = pd.to_datetime(plot_df["match_date"], errors="coerce")
+        plot_df = plot_df.sort_values(["match_date", "match_name", "shooter_name"])
+        plot_df["match_label"] = plot_df.apply(
+            lambda r: f"{r['match_name']} ({r['match_date'].date()})"
+            if pd.notna(r["match_date"]) else str(r["match_name"]),
+            axis=1,
+        )
+        match_order = (
+            plot_df[["match_name", "match_date", "match_label"]]
+            .drop_duplicates()
+            .sort_values(["match_date", "match_name"])["match_label"]
+            .tolist()
+        )
+    else:
+        plot_df = plot_df.sort_values(["match_name", "shooter_name"])
+        plot_df["match_label"] = plot_df["match_name"].astype(str)
+        match_order = (
+            plot_df[["match_name", "match_label"]]
+            .drop_duplicates()
+            .sort_values(["match_name"])["match_label"]
+            .tolist()
+        )
+
+    fig = go.Figure()
+
+    for shooter in [shooter_1, shooter_2]:
+        shooter_df = plot_df[plot_df["shooter_name"] == shooter].copy()
+        if shooter_df.empty:
+            continue
+
+        if "match_date" in shooter_df.columns:
+            date_vals = shooter_df["match_date"].dt.strftime("%Y-%m-%d").fillna("").to_numpy()
+        else:
+            date_vals = np.array([""] * len(shooter_df), dtype=object)
+
+        customdata = np.column_stack([
+            shooter_df["match_name"].astype(str).to_numpy(),
+            date_vals,
+        ])
+
+        fig.add_trace(
+            go.Scatter(
+                x=shooter_df["match_label"],
+                y=shooter_df["metric_value"],
+                mode="lines+markers" if show_markers else "lines",
+                name=shooter,
+                customdata=customdata,
+                hovertemplate=(
+                    "Shooter: %{fullData.name}<br>"
+                    "Match: %{customdata[0]}<br>"
+                    "Date: %{customdata[1]}<br>"
+                    "Value: %{y:.1%}<extra></extra>"
+                ),
+            )
+        )
+
+    if len(fig.data) == 0:
+        st.info("No data to plot.")
+        return
+
+    if show_ref:
+        fig.add_hline(y=ref_val, line_dash="dash", line_color="gray", line_width=2)
+
+    fig.update_layout(
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(title=""),
+        xaxis=dict(
+            title="Match",
+            categoryorder="array",
+            categoryarray=match_order,
+        ),
+        yaxis=dict(
+            title=y_title,
+            tickformat=".0%",
+            showgrid=True,
+            gridcolor="lightgray",
+        ),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)

@@ -4,111 +4,19 @@ import plotly.graph_objects as go
 import plotly.colors as pc
 import numpy as np
 
-# def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
-#     # Validate required columns
-#     y = f"{norm}_factor_perc"
-#     need = {"match_name", y, "match_date"}
-#     if not need.issubset(df.columns):
-#         st.info(f"Columns `match_name`, `match_date`, `{y}` required — skipping distribution chart.")
-#         return
-
-#     # Sort matches by date
-#     match_order = (
-#         df[["match_name", "match_date"]]
-#         .drop_duplicates()
-#         .sort_values("match_date")["match_name"]
-#         .tolist()
-#     )
-
-#     # Create figure
-#     fig = go.Figure()
-
-#     # Add boxplots with centered outliers
-#     for match in match_order:
-#         match_df = df[df["match_name"] == match]
-
-#         fig.add_trace(
-#             go.Box(
-#                 y=match_df[y],
-#                 name=match,
-#                 boxpoints="outliers",  # Show outliers
-#                 jitter=0,              # Disable jitter to center outliers
-#                 pointpos=0,            # Center outliers on the box (0 = middle of box)
-#                 marker=dict(size=5, opacity=0.6),
-#                 line=dict(width=1),
-#                 hoverinfo="y+text",
-#                 # Build hover text: include Stage + Predicted Class
-#                 hovertemplate="Stage: %{customdata[0]}<br>"
-#                             "Predicted Class: %{customdata[1]}<br>"
-#                             "Result: %{y:.2%}<extra></extra>",
-#                 text=None,  # we now use customdata instead of text
-#                 customdata=np.stack([
-#                     match_df["stg"] if "stg" in match_df.columns else [""] * len(match_df),
-#                     match_df["pred_class"] if "pred_class" in match_df.columns else [""] * len(match_df),
-#                 ], axis=-1),
-#             )
-#         )
-
-#     # Add median line
-#     med = (
-#         df.groupby("match_name", as_index=False)[y]
-#         .median()
-#         .rename(columns={y: "median"})
-#         .merge(df[["match_name", "match_date"]].drop_duplicates(), on="match_name")
-#         .sort_values("match_date")
-#     )
-#     fig.add_trace(
-#         go.Scatter(
-#             x=med["match_name"],
-#             y=med["median"],
-#             mode="lines+markers",
-#             name="Median",
-#             line=dict(color="grey", dash="dashdot", width=2),
-#             marker=dict(size=8),
-#             hovertemplate="Match: %{x}<br>Median: %{y:.2%}<extra></extra>",
-#         )
-#     )
-
-#     # Add reference line at 50% if requested
-#     if show_ref:
-#         fig.add_hline(
-#             y=0.5,
-#             line_dash="dash",
-#             line_color="gray",
-#             line_width=2,
-#             annotation_text="50%",
-#             annotation_position="top left",
-#         )
-
-#     # Update layout
-#     y_label_prefix = "Division" if norm == "div" else "Class"
-#     y_axis = dict(
-#         title=f"{y_label_prefix} Stage Result",
-#         tickformat=".0%",
-#         range=[0, 1] if lock_axes else [df[y].min(), df[y].max()],
-#     )
-#     fig.update_layout(
-#         xaxis=dict(
-#             # title="Match",
-#             categoryorder="array",
-#             categoryarray=match_order,
-#             tickangle=45,  # Rotate labels for better readability if needed
-#         ),
-#         yaxis=y_axis,
-#         showlegend=False,  # Hide legend as in original
-#         template="plotly_white",
-#         hovermode="closest",
-#         margin=dict(l=10, r=10, t=10, b=10)
-#     )
-
-#     # Display in Streamlit
-#     st.plotly_chart(fig, use_container_width=True)
+from lib.stats import performance_class_from_pct
     
-def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
-    import numpy as np
-    import pandas as pd
-    import plotly.graph_objects as go
-    import streamlit as st
+def stage_distr(
+    df: pd.DataFrame,
+    norm: str = "div",
+    show_ref: bool = True,
+    lock_axes: bool = True,
+    class_mode: str = "predict",   # "predict" or "performance"
+):
+
+    if class_mode not in {"predict", "performance"}:
+        st.info("`class_mode` must be either 'predict' or 'performance'.")
+        return
 
     # Validate required columns
     y = f"{norm}_factor_perc"
@@ -117,30 +25,33 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
         st.info(f"Columns `match_name`, `match_date`, `{y}` required — skipping distribution chart.")
         return
 
+    plot_df = df.copy()
+    plot_df[y] = pd.to_numeric(plot_df[y], errors="coerce")
+    plot_df["match_date"] = pd.to_datetime(plot_df["match_date"], errors="coerce")
+
     # Prefer stage-level predicted class for outliers
     stage_pred_col = None
     for candidate in ["pred_class_stage", "pred_class_per_stage", "pred_class"]:
-        if candidate in df.columns:
+        if candidate in plot_df.columns:
             stage_pred_col = candidate
             break
 
     # Stage id column
-    stage_col = "stg_n" if "stg_n" in df.columns else ("stg" if "stg" in df.columns else None)
+    stage_col = "stg_n" if "stg_n" in plot_df.columns else ("stg" if "stg" in plot_df.columns else None)
 
     # Sort matches by date
     match_order = (
-        df[["match_name", "match_date"]]
+        plot_df[["match_name", "match_date"]]
         .drop_duplicates()
         .sort_values("match_date")["match_name"]
         .tolist()
     )
 
-    # Create figure
     fig = go.Figure()
 
     # --- 1) Distribution layer (boxplots) ---
     for match in match_order:
-        match_df = df[df["match_name"] == match].copy()
+        match_df = plot_df[plot_df["match_name"] == match].copy()
 
         stage_vals = (
             match_df[stage_col].astype(str).to_numpy()
@@ -148,13 +59,18 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
             else np.array([""] * len(match_df), dtype=object)
         )
 
-        pred_vals = (
-            match_df[stage_pred_col].fillna("").astype(str).to_numpy()
-            if stage_pred_col is not None
-            else np.array([""] * len(match_df), dtype=object)
-        )
+        if class_mode == "predict":
+            class_vals = (
+                match_df[stage_pred_col].fillna("").astype(str).to_numpy()
+                if stage_pred_col is not None
+                else np.array([""] * len(match_df), dtype=object)
+            )
+            class_label = "Predicted Class"
+        else:
+            class_vals = performance_class_from_pct(match_df[y]).fillna("").astype(str).to_numpy()
+            class_label = "Performance Class"
 
-        customdata = np.column_stack([stage_vals, pred_vals])
+        customdata = np.column_stack([stage_vals, class_vals])
 
         fig.add_trace(
             go.Box(
@@ -167,7 +83,7 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
                 line=dict(width=1),
                 hovertemplate=(
                     "Stage: %{customdata[0]}<br>"
-                    "Predicted Class: %{customdata[1]}<br>"
+                    f"{class_label}: " + "%{customdata[1]}<br>"
                     "Result: %{y:.2%}<extra></extra>"
                 ),
                 customdata=customdata,
@@ -177,10 +93,10 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
 
     # --- 2) Median line across matches ---
     med = (
-        df.groupby("match_name", as_index=False)[y]
+        plot_df.groupby("match_name", as_index=False)[y]
         .median()
         .rename(columns={y: "median"})
-        .merge(df[["match_name", "match_date"]].drop_duplicates(), on="match_name")
+        .merge(plot_df[["match_name", "match_date"]].drop_duplicates(), on="match_name")
         .sort_values("match_date")
     )
 
@@ -198,39 +114,73 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
     )
 
     # --- 3) Bubble overlay: ONE bubble per match ---
-    # Keep match-level mode if available; otherwise fallback to stage-level mode
-    bubble_pred_col = None
-    for candidate in ["pred_class", "pred_class_stage", "pred_class_per_stage"]:
-        if candidate in df.columns:
-            bubble_pred_col = candidate
-            break
+    if class_mode == "predict":
+        bubble_pred_col = None
+        for candidate in ["pred_class", "pred_class_stage", "pred_class_per_stage"]:
+            if candidate in plot_df.columns:
+                bubble_pred_col = candidate
+                break
 
-    if bubble_pred_col is not None:
-        cls = (
-            df[["match_name", bubble_pred_col]]
-            .dropna(subset=[bubble_pred_col])
-            .groupby("match_name")[bubble_pred_col]
-            .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0])
-            .reset_index()
-            .rename(columns={bubble_pred_col: "pred_class_mode"})
+        if bubble_pred_col is not None:
+            cls = (
+                plot_df[["match_name", bubble_pred_col]]
+                .dropna(subset=[bubble_pred_col])
+                .groupby("match_name")[bubble_pred_col]
+                .agg(lambda s: s.mode().iat[0] if not s.mode().empty else s.iloc[0])
+                .reset_index()
+                .rename(columns={bubble_pred_col: "bubble_class"})
+            )
+
+            bubbles = med[["match_name", "median"]].merge(cls, on="match_name", how="left")
+
+            fig.add_trace(
+                go.Scatter(
+                    x=bubbles["match_name"],
+                    y=bubbles["median"],
+                    mode="markers+text",
+                    text=bubbles["bubble_class"].fillna(""),
+                    textposition="middle center",
+                    textfont=dict(size=22, color="#1f1f1f"),
+                    showlegend=False,
+                    hovertemplate=(
+                        "Match: %{x}<br>"
+                        "Predicted Class: %{text}<br>"
+                        "Median: %{y:.2%}<extra></extra>"
+                    ),
+                )
+            )
+
+    else:
+        # performance class based on mean performance percentage per match
+        perf_cls = (
+            plot_df.groupby("match_name", as_index=False)[y]
+            .mean()
+            .rename(columns={y: "mean_perf"})
         )
+        perf_cls["bubble_class"] = performance_class_from_pct(perf_cls["mean_perf"])
 
-        bubbles = med[["match_name", "median"]].merge(cls, on="match_name", how="left")
+        bubbles = med[["match_name", "median"]].merge(
+            perf_cls[["match_name", "mean_perf", "bubble_class"]],
+            on="match_name",
+            how="left",
+        )
 
         fig.add_trace(
             go.Scatter(
                 x=bubbles["match_name"],
                 y=bubbles["median"],
                 mode="markers+text",
-                text=bubbles["pred_class_mode"].fillna(""),
+                text=bubbles["bubble_class"].fillna(""),
                 textposition="middle center",
                 textfont=dict(size=22, color="#1f1f1f"),
                 showlegend=False,
                 hovertemplate=(
                     "Match: %{x}<br>"
-                    "Predicted Class: %{text}<br>"
+                    "Performance Class: %{text}<br>"
+                    "Mean Result: %{customdata[0]:.2%}<br>"
                     "Median: %{y:.2%}<extra></extra>"
                 ),
+                customdata=np.column_stack([bubbles["mean_perf"].to_numpy(dtype=float)]),
             )
         )
 
@@ -247,8 +197,8 @@ def stage_distr(df: pd.DataFrame, norm='div', show_ref=True, lock_axes=True):
 
     # --- 5) Layout ---
     y_label_prefix = "Division" if norm == "div" else "Class"
-    y_min = pd.to_numeric(df[y], errors="coerce").min()
-    y_max = pd.to_numeric(df[y], errors="coerce").max()
+    y_min = pd.to_numeric(plot_df[y], errors="coerce").min()
+    y_max = pd.to_numeric(plot_df[y], errors="coerce").max()
 
     y_axis = dict(
         title=f"{y_label_prefix} Stage Result",

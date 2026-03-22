@@ -12,14 +12,7 @@ st.set_page_config(page_title="Shooter Performance", layout="wide")
 LANG = {
     "en": {
         "select_language": "Language",
-        "data_header": "Data",
         "data_header_help": "Affect all charts on this page",
-        "normalization": "Normalization",
-        "per_division": "Per Division",
-        "per_class": "Per Class",
-        "norm_help": "Normalize metrics and charts per division or per class",
-        "true_points": "Show absolute stage points",
-        "true_points_help": "If selected, stage points use absolute stage points percentage instead of division/class normalized points",
         "filters_header": "Filters",
         "shooter": "Shooter",
         "shooter_help": "Select shooter to analyze",
@@ -80,6 +73,8 @@ LANG = {
         "show_centroid_labels_help": "Show match name labels next to centroids on scatter chart",
         "show_regression": "Show regression line",
         "show_regression_help": "Show regression line between centroids on scatter chart",
+        "true_points": "Show absolute stage points",
+        "true_points_help": "If selected, stage points use absolute stage points percentage instead of division-normalized points",
         "stage_point_size": "Stage point size",
         "stage_point_size_help": "Size of individual stage points on scatter chart",
         "stage_point_opacity": "Stage point opacity",
@@ -89,14 +84,7 @@ LANG = {
     },
     "it": {
         "select_language": "Lingua",
-        "data_header": "Dati",
         "data_header_help": "Influenza tutti i grafici di questa pagina",
-        "normalization": "Normalizzazione",
-        "per_division": "Per Divisione",
-        "per_class": "Per Classe",
-        "norm_help": "Normalizza metriche e grafici per divisione o per classe",
-        "true_points": "Mostra percentuale punti stage assoluta",
-        "true_points_help": "Se selezionato, i punti stage usano la percentuale assoluta invece della normalizzazione per divisione/classe",
         "filters_header": "Filtri",
         "shooter": "Tiratore",
         "shooter_help": "Seleziona il tiratore da analizzare",
@@ -157,6 +145,8 @@ LANG = {
         "show_centroid_labels_help": "Mostra i nomi dei match vicino ai centroidi",
         "show_regression": "Mostra retta di regressione",
         "show_regression_help": "Mostra la retta di regressione tra i centroidi",
+        "true_points": "Mostra percentuale punti stage assoluta",
+        "true_points_help": "Se selezionato, i punti stage usano la percentuale assoluta invece della normalizzazione per divisione",
         "stage_point_size": "Dimensione punti stage",
         "stage_point_size_help": "Dimensione dei punti degli stage nello scatter",
         "stage_point_opacity": "Opacità punti stage",
@@ -274,31 +264,12 @@ stages = prepare_stages_df(get_data("fitds_stages"))
 st.title(get_page_title())
 
 # ========= SIDEBAR GLOBAL OPTIONS =========
-st.sidebar.header(_("data_header"), help=_("data_header_help"))
-normalization = st.sidebar.selectbox(
-    _("normalization"),
-    [_("per_division"), _("per_class")],
-    index=0,
-    key="dd_normalization",
-    help=_("norm_help"),
-)
-
-true_points = st.sidebar.checkbox(
-    _("true_points"),
-    value=True,
-    key="dd_true_pts",
-    help=_("true_points_help"),
-)
-
-norm = "div" if normalization == _("per_division") else "cls"
-norm_header = "Division" if norm == "div" else "Class"
-
-factor_col = f"{norm}_factor_perc"
-norm_pts_col = f"{norm}_pts_perc"
-pts_col = "pts_pct" if true_points else norm_pts_col
-time_col = f"{norm}_time_perc"
-
-chart_norm = norm
+norm = "div"
+norm_header = "Division"
+factor_col = "div_factor_perc"
+norm_pts_col = "div_pts_perc"
+time_col = "div_time_perc"
+chart_norm = "div"
 
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
 
@@ -456,6 +427,12 @@ if df.empty:
 
 stage_class_preds = merge_stage_predictions(df)
 
+# ========= DEFAULT CHART SETTINGS =========
+if "dd_true_pts" not in st.session_state:
+    st.session_state.dd_true_pts = True
+
+pts_col = "pts_pct" if st.session_state.dd_true_pts else norm_pts_col
+
 # ========= TOP METRICS =========
 avg_factor = mean_metric(df, factor_col)
 avg_pts = mean_metric(df, pts_col)
@@ -468,9 +445,9 @@ top_c2.metric(
 )
 
 top_c3.metric(
-    _("avg_stage_pts_pct_true") if true_points else _("avg_stage_pts_pct", scope=norm_header),
+    _("avg_stage_pts_pct_true") if st.session_state.dd_true_pts else _("avg_stage_pts_pct", scope=norm_header),
     f"{avg_pts:.0%}" if pd.notna(avg_pts) else "—",
-    help=_("avg_stage_pts_pct_true_help") if true_points else _("avg_stage_pts_pct_help"),
+    help=_("avg_stage_pts_pct_true_help") if st.session_state.dd_true_pts else _("avg_stage_pts_pct_help"),
 )
 
 top_c4.metric(
@@ -543,62 +520,81 @@ else:
 # ========= STAGE DISTRIBUTION =========
 st.subheader(_("stage_perf_distr"))
 st.write(_("stage_perf_distr_help_text"))
-stage_distr(stage_class_preds, norm=chart_norm, show_ref=show_ref, lock_axes=True)
+stage_distr(
+    stage_class_preds,
+    norm=chart_norm,
+    show_ref=show_ref,
+    lock_axes=True,
+    class_mode="performance",
+)
 
 # ========= STAGE SCATTER =========
 st.subheader(_("stage_points_time_header"))
 st.write(_("stage_points_time_text"))
 
-scatter_c1, scatter_c2 = st.columns([3, 1], vertical_alignment="top")
+scatter_opts_c1, scatter_opts_c2, scatter_opts_c3, scatter_opts_c4 = st.columns(4, vertical_alignment="bottom")
 
-with scatter_c2:
-    show_points = st.checkbox(
-        _("show_stage_points"),
-        value=True,
-        key="dd_show_points",
-        help=_("show_stage_points_help"),
-    )
-    show_labels = st.checkbox(
-        _("show_centroid_labels"),
-        value=True,
-        key="dd_labels",
-        help=_("show_centroid_labels_help"),
-    )
-    show_reg = st.checkbox(
-        _("show_regression"),
-        value=True,
-        key="dd_show_reg",
-        help=_("show_regression_help"),
-    )
+show_points = scatter_opts_c1.checkbox(
+    _("show_stage_points"),
+    value=True,
+    key="dd_show_points",
+    help=_("show_stage_points_help"),
+)
 
-with scatter_c1:
-    point_size = st.slider(
-        _("stage_point_size"),
-        20,
-        200,
-        60,
-        10,
-        key="dd_pt_size",
-        help=_("stage_point_size_help"),
-    )
-    point_opacity = st.slider(
-        _("stage_point_opacity"),
-        0.2,
-        1.0,
-        0.6,
-        0.1,
-        key="dd_pt_opacity",
-        help=_("stage_point_opacity_help"),
-    )
-    centroid_size = st.slider(
-        _("centroid_size"),
-        80,
-        400,
-        220,
-        20,
-        key="dd_centroid_size",
-        help=_("centroid_size_help"),
-    )
+show_labels = scatter_opts_c2.checkbox(
+    _("show_centroid_labels"),
+    value=True,
+    key="dd_labels",
+    help=_("show_centroid_labels_help"),
+)
+
+show_reg = scatter_opts_c3.checkbox(
+    _("show_regression"),
+    value=True,
+    key="dd_show_reg",
+    help=_("show_regression_help"),
+)
+
+true_points = scatter_opts_c4.checkbox(
+    _("true_points"),
+    value=st.session_state.dd_true_pts,
+    key="dd_true_pts",
+    help=_("true_points_help"),
+)
+
+pts_col = "pts_pct" if true_points else norm_pts_col
+
+scatter_sliders_c1, scatter_sliders_c2, scatter_sliders_c3 = st.columns(3, vertical_alignment="top")
+
+point_size = scatter_sliders_c1.slider(
+    _("stage_point_size"),
+    20,
+    200,
+    60,
+    10,
+    key="dd_pt_size",
+    help=_("stage_point_size_help"),
+)
+
+point_opacity = scatter_sliders_c2.slider(
+    _("stage_point_opacity"),
+    0.2,
+    1.0,
+    0.6,
+    0.1,
+    key="dd_pt_opacity",
+    help=_("stage_point_opacity_help"),
+)
+
+centroid_size = scatter_sliders_c3.slider(
+    _("centroid_size"),
+    80,
+    400,
+    220,
+    20,
+    key="dd_centroid_size",
+    help=_("centroid_size_help"),
+)
 
 stage_scatter(
     stage_class_preds,

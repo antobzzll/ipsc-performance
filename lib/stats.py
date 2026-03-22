@@ -292,3 +292,25 @@ def match_standing(
             "pct_vs_non_m_gm_minus_16": "pct_abcd_minus_16",
         }
     )
+    
+def performance_class_from_pct(values):
+        """
+        Map percentage values in [0, 1] to merit classes:
+        GM 95-100
+        M  85-94.99
+        A  75-84.99
+        B  60-74.99
+        C  40-59.99
+        D   0-39.99
+        """
+        s = pd.to_numeric(pd.Series(values), errors="coerce")
+        out = pd.Series(index=s.index, dtype="object")
+
+        out[(s >= 0.95) & (s <= 1.00)] = "GM"
+        out[(s >= 0.85) & (s < 0.95)] = "M"
+        out[(s >= 0.75) & (s < 0.85)] = "A"
+        out[(s >= 0.60) & (s < 0.75)] = "B"
+        out[(s >= 0.40) & (s < 0.60)] = "C"
+        out[(s >= 0.00) & (s < 0.40)] = "D"
+
+        return out

@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from lib.data import get_data
 from lib.stats import match_standing, stage_standing
 from lib.utils import get_page_title
+from lib.charts import stage_comparison_chart
 
 st.set_page_config(page_title="Match & Stage Standings", layout="wide")
 
@@ -15,6 +15,9 @@ LANG = {
         "select_language": "Language",
         "filters_header": "Filters",
         "data_header_help": "Affect all tables and metrics on this page",
+        "year": "Year",
+        "year_help": "Select the year to filter matches",
+        "year_placeholder": "-- Select year --",
         "match": "Match",
         "match_help": "Select the match to analyze",
         "select_match_first": "Select a match to display the analysis.",
@@ -23,16 +26,15 @@ LANG = {
         "division_help": "Select the shooter division",
         "stage": "Stage",
         "stage_help": "Select the stage to analyze",
-        "show_raw_rows": "Show raw match rows",
-        "show_raw_rows_help": "Show original filtered rows for the selected match and division",
         "show_stage_standing": "Show stage standing",
         "show_stage_standing_help": "Show standing for the selected stage",
+        "show_stage_average": "Show stage average",
+        "show_stage_average_help": "Overlay the stage average of the selected metric on the chart",
+        "stage_average_name": "Stage Avg",
         "no_data": "No data for the selected filters.",
-        "match_analysis": "Match Standing",
         "match_summary": "Match Summary",
         "match_standing_header": "Match Standing",
         "stage_standing_header": "Stage Standing",
-        "raw_rows_header": "Raw Match Rows",
         "comparison_header": "Shooter Comparison by Stage",
         "comparison_text": (
             "Compare up to three shooters stage by stage within the selected match and division. "
@@ -52,18 +54,18 @@ LANG = {
         "n_shooters": "Shooters",
         "n_stages": "Stages",
         "winner": "Winner",
-        "top_score": "Top Match Pts",
-        "avg_hf": "Avg HF",
         "selected_match": "Selected Match",
         "selected_division": "Selected Division",
         "selected_stage": "Selected Stage",
-        "download_csv": "Download CSV",
         "winner_stage_count": "Winner Stage Wins",
     },
     "it": {
         "select_language": "Lingua",
         "filters_header": "Filtri",
         "data_header_help": "Influenza tutte le tabelle e metriche di questa pagina",
+        "year": "Anno",
+        "year_help": "Seleziona l’anno per filtrare i match",
+        "year_placeholder": "-- Seleziona anno --",
         "match": "Match",
         "match_help": "Seleziona il match da analizzare",
         "select_match_first": "Seleziona un match per visualizzare l’analisi.",
@@ -72,16 +74,15 @@ LANG = {
         "division_help": "Seleziona la divisione del tiratore",
         "stage": "Stage",
         "stage_help": "Seleziona lo stage da analizzare",
-        "show_raw_rows": "Mostra righe match grezze",
-        "show_raw_rows_help": "Mostra le righe originali filtrate per match e divisione selezionati",
         "show_stage_standing": "Mostra classifica stage",
         "show_stage_standing_help": "Mostra la classifica dello stage selezionato",
+        "show_stage_average": "Mostra media stage",
+        "show_stage_average_help": "Sovrapponi al grafico la media stage della metrica selezionata",
+        "stage_average_name": "Media Stage",
         "no_data": "Nessun dato per i filtri selezionati.",
-        "match_analysis": "Classifica Match",
         "match_summary": "Riepilogo Match",
         "match_standing_header": "Classifica Match",
         "stage_standing_header": "Classifica Stage",
-        "raw_rows_header": "Righe Grezze Match",
         "comparison_header": "Confronto Tiratori per Stage",
         "comparison_text": (
             "Confronta fino a tre tiratori stage per stage nel match e nella divisione selezionati. "
@@ -101,12 +102,9 @@ LANG = {
         "n_shooters": "Tiratori",
         "n_stages": "Stage",
         "winner": "Vincitore",
-        "top_score": "Punti Match Top",
-        "avg_hf": "HF Medio",
         "selected_match": "Match Selezionato",
         "selected_division": "Divisione Selezionata",
         "selected_stage": "Stage Selezionato",
-        "download_csv": "Scarica CSV",
         "winner_stage_count": "Stage Vinti dal Vincitore",
     },
 }
@@ -115,91 +113,6 @@ LANG = {
 def t(key: str, lang: str, **kwargs) -> str:
     base = LANG.get(lang, LANG["en"]).get(key, LANG["en"].get(key, key))
     return base.format(**kwargs) if kwargs else base
-
-
-def build_stage_comparison_chart(
-    df: pd.DataFrame,
-    shooters: list[str],
-    metric_col: str,
-    metric_label: str,
-):
-    if not shooters:
-        st.info(_("select_at_least_one_shooter"))
-        return
-
-    need = {"shooter_name", "stg_n", metric_col}
-    missing = [c for c in need if c not in df.columns]
-    if missing:
-        st.info(f"Missing columns for comparison chart: {missing}")
-        return
-
-    cdf = df[df["shooter_name"].isin(shooters)].copy()
-    if cdf.empty:
-        st.info(_("no_data"))
-        return
-
-    cdf["stg_n"] = pd.to_numeric(cdf["stg_n"], errors="coerce")
-    cdf[metric_col] = pd.to_numeric(cdf[metric_col], errors="coerce")
-    cdf = cdf.dropna(subset=["stg_n", metric_col])
-
-    if cdf.empty:
-        st.info(_("no_data"))
-        return
-
-    plot_df = (
-        cdf.groupby(["shooter_name", "stg_n"], as_index=False)
-        .agg(
-            pts=("stg_match_pts", "mean") if "stg_match_pts" in cdf.columns else (metric_col, "mean"),
-            time=("time", "mean") if "time" in cdf.columns else (metric_col, "mean"),
-            hf=("hf", "mean") if "hf" in cdf.columns else (metric_col, "mean"),
-            metric_value=(metric_col, "mean"),
-        )
-        .sort_values(["stg_n", "shooter_name"])
-    )
-
-    fig = go.Figure()
-
-    for shooter in shooters:
-        sdf = plot_df[plot_df["shooter_name"] == shooter].copy()
-        if sdf.empty:
-            continue
-
-        customdata = np.column_stack(
-            [
-                sdf["pts"].to_numpy(dtype=float),
-                sdf["time"].to_numpy(dtype=float),
-                sdf["hf"].to_numpy(dtype=float),
-            ]
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=sdf["stg_n"],
-                y=sdf["metric_value"],
-                mode="lines+markers",
-                name=shooter,
-                customdata=customdata,
-                hovertemplate=(
-                    "Shooter: %{fullData.name}<br>"
-                    "Stage: %{x}<br>"
-                    "Pts: %{customdata[0]:.2f}<br>"
-                    "Time: %{customdata[1]:.2f}<br>"
-                    "HF: %{customdata[2]:.4f}<br>"
-                    f"{metric_label}: %{{y}}<extra></extra>"
-                ),
-            )
-        )
-
-    fig.update_layout(
-        template="plotly_white",
-        margin=dict(l=10, r=10, t=10, b=10),
-        hovermode="x unified",
-        xaxis=dict(title=_("stage"), dtick=1),
-        yaxis=dict(title=metric_label),
-        legend=dict(title=""),
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
 
 
 # ========= SIDEBAR: LANGUAGE =========
@@ -227,6 +140,7 @@ if "shooter_div" not in df.columns and "div" in df.columns:
 
 if "match_date" in df.columns:
     df["match_date"] = pd.to_datetime(df["match_date"], errors="coerce")
+    df["match_year"] = df["match_date"].dt.year
 
 if "hf" not in df.columns and "hit_factor" in df.columns:
     df["hf"] = df["hit_factor"]
@@ -235,10 +149,50 @@ for col in ["stg_n", "hf", "stg_match_pts", "time"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-st.title(f"{get_page_title()} - {_('match_analysis')}")
+st.title(f"{get_page_title()}")
 
 # ========= FILTERS =========
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
+
+available_years = []
+if "match_year" in df.columns:
+    available_years = (
+        df["match_year"]
+        .dropna()
+        .astype(int)
+        .sort_values()
+        .unique()
+        .tolist()
+    )
+
+if not available_years:
+    st.warning(_("no_data"))
+    st.stop()
+
+year_placeholder = _("year_placeholder")
+year_options = [year_placeholder] + [str(y) for y in available_years]
+
+if "selected_match_analysis_year" not in st.session_state:
+    st.session_state.selected_match_analysis_year = str(available_years[-1])
+
+if st.session_state.selected_match_analysis_year not in year_options:
+    st.session_state.selected_match_analysis_year = str(available_years[-1])
+
+selected_year_label = st.sidebar.selectbox(
+    _("year"),
+    options=year_options,
+    index=year_options.index(st.session_state.selected_match_analysis_year),
+    key="dd_match_analysis_year",
+    help=_("year_help"),
+)
+st.session_state.selected_match_analysis_year = selected_year_label
+
+if selected_year_label == year_placeholder:
+    st.info(_("no_data"))
+    st.stop()
+
+selected_year = int(selected_year_label)
+df = df[df["match_year"] == selected_year].copy()
 
 match_cols = ["match_name"]
 if "match_date" in df.columns:
@@ -249,7 +203,9 @@ matches_df = df[match_cols].drop_duplicates().copy()
 if "match_date" in matches_df.columns:
     matches_df = matches_df.sort_values(["match_date", "match_name"])
     matches_df["match_label"] = matches_df.apply(
-        lambda r: f"{r['match_name']} ({r['match_date'].date()})" if pd.notna(r["match_date"]) else str(r["match_name"]),
+        lambda r: f"{r['match_name']} ({r['match_date'].date()})"
+        if pd.notna(r["match_date"])
+        else str(r["match_name"]),
         axis=1,
     )
 else:
@@ -294,7 +250,11 @@ if match_df.empty:
     st.warning(_("no_data"))
     st.stop()
 
-divisions = sorted(match_df["shooter_div"].dropna().astype(str).unique().tolist()) if "shooter_div" in match_df.columns else []
+divisions = (
+    sorted(match_df["shooter_div"].dropna().astype(str).unique().tolist())
+    if "shooter_div" in match_df.columns
+    else []
+)
 if not divisions:
     st.warning(_("no_data"))
     st.stop()
@@ -320,6 +280,14 @@ if match_df.empty:
     st.warning(_("no_data"))
     st.stop()
 
+show_stage_standing = st.sidebar.checkbox(
+    _("show_stage_standing"),
+    value=False,
+    key="dd_match_analysis_show_stage_standing",
+    help=_("show_stage_standing_help"),
+)
+
+# ========= STAGE OPTIONS =========
 stage_options = []
 if "stg_n" in match_df.columns:
     stage_options = (
@@ -339,28 +307,7 @@ if stage_options:
     ):
         st.session_state.selected_match_analysis_stage = stage_options[0]
 
-    selected_stage = st.sidebar.selectbox(
-        _("stage"),
-        options=stage_options,
-        index=stage_options.index(st.session_state.selected_match_analysis_stage),
-        key="dd_match_analysis_stage",
-        help=_("stage_help"),
-    )
-    st.session_state.selected_match_analysis_stage = selected_stage
-
-show_stage_standing = st.sidebar.checkbox(
-    _("show_stage_standing"),
-    value=True,
-    key="dd_match_analysis_show_stage_standing",
-    help=_("show_stage_standing_help"),
-)
-
-show_raw_rows = st.sidebar.checkbox(
-    _("show_raw_rows"),
-    value=False,
-    key="dd_match_analysis_show_raw_rows",
-    help=_("show_raw_rows_help"),
-)
+    selected_stage = st.session_state.selected_match_analysis_stage
 
 # ========= STANDINGS =========
 standing = match_standing(
@@ -380,14 +327,25 @@ if show_stage_standing and selected_stage is not None:
     ).copy()
 
 # ========= SUMMARY =========
-winner_name = standing.iloc[0]["shooter_name"] if not standing.empty and "shooter_name" in standing.columns else None
-top_score = standing["stg_match_pts"].max() if not standing.empty and "stg_match_pts" in standing.columns else np.nan
-avg_hf = match_df["hf"].mean() if "hf" in match_df.columns and match_df["hf"].notna().any() else np.nan
-n_shooters = match_df["shooter_name"].nunique() if "shooter_name" in match_df.columns else len(match_df)
+winner_name = (
+    standing.iloc[0]["shooter_name"]
+    if not standing.empty and "shooter_name" in standing.columns
+    else None
+)
+n_shooters = (
+    match_df["shooter_name"].nunique()
+    if "shooter_name" in match_df.columns
+    else len(match_df)
+)
 n_stages = match_df["stg_n"].nunique() if "stg_n" in match_df.columns else np.nan
 
 winner_stage_count = np.nan
-if winner_name is not None and "stg_n" in match_df.columns and "hf" in match_df.columns and "shooter_name" in match_df.columns:
+if (
+    winner_name is not None
+    and "stg_n" in match_df.columns
+    and "hf" in match_df.columns
+    and "shooter_name" in match_df.columns
+):
     stage_winners = (
         match_df.sort_values(["stg_n", "hf"], ascending=[True, False])
         .dropna(subset=["stg_n"])
@@ -406,39 +364,17 @@ if selected_stage is not None:
 st.caption(caption)
 
 st.subheader(_("match_summary"))
-c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1, c2, c3, c4 = st.columns([0.15, 0.15, 0.5, 0.2])
 c1.metric(_("n_shooters"), f"{int(n_shooters)}" if pd.notna(n_shooters) else "-")
 c2.metric(_("n_stages"), f"{int(n_stages)}" if pd.notna(n_stages) else "-")
 c3.metric(_("winner"), str(winner_name) if winner_name is not None else "-")
-c4.metric(_("top_score"), f"{float(top_score):.2f}" if pd.notna(top_score) else "-")
-c5.metric(_("avg_hf"), f"{float(avg_hf):.4f}" if pd.notna(avg_hf) else "-")
-c6.metric(_("winner_stage_count"), f"{winner_stage_count}" if pd.notna(winner_stage_count) else "-")
+c4.metric(_("winner_stage_count"), f"{winner_stage_count}" if pd.notna(winner_stage_count) else "-")
 
 st.write("---")
 
 # ========= MATCH STANDING =========
 st.subheader(_("match_standing_header"))
 st.dataframe(standing, use_container_width=True, hide_index=True)
-
-# ========= STAGE STANDING =========
-if show_stage_standing and selected_stage is not None:
-    st.subheader(_("stage_standing_header"))
-    if stage_stand.empty:
-        st.info(_("no_data"))
-    else:
-        st.dataframe(stage_stand, use_container_width=True, hide_index=True)
-
-# ========= RAW ROWS =========
-if show_raw_rows:
-    st.subheader(_("raw_rows_header"))
-
-    raw_df = (
-        match_df.sort_values(["stg_n", "hf"], ascending=[True, False])
-        if "stg_n" in match_df.columns and "hf" in match_df.columns
-        else match_df.copy()
-    )
-
-    st.dataframe(raw_df, use_container_width=True, hide_index=True)
 
 # ========= SHOOTER COMPARISON =========
 available_shooters = sorted(match_df["shooter_name"].dropna().astype(str).unique().tolist())
@@ -453,15 +389,22 @@ for key in [
     if key not in st.session_state or st.session_state[key] not in shooter_options:
         st.session_state[key] = shooter_placeholder
 
+metric_options = [_("metric_pts"), _("metric_time"), _("metric_hf")]
 if "selected_match_analysis_compare_metric" not in st.session_state:
     st.session_state.selected_match_analysis_compare_metric = _("metric_hf")
+
+if st.session_state.selected_match_analysis_compare_metric not in metric_options:
+    st.session_state.selected_match_analysis_compare_metric = _("metric_hf")
+
+if "selected_match_analysis_show_stage_average" not in st.session_state:
+    st.session_state.selected_match_analysis_show_stage_average = True
 
 st.subheader(_("comparison_header"))
 st.write(_("comparison_text"))
 
-cmp_c1, cmp_c2, cmp_c3, cmp_c4 = st.columns(4, vertical_alignment="bottom")
+cmp_c1, cmp_c2, cmp_c3, cmp_c4, cmp_c5 = st.columns([1, 1, 1, 1, 1])
 
-st.session_state.selected_match_analysis_shooter_1 = cmp_c1.selectbox(
+selected_shooter_1 = cmp_c1.selectbox(
     _("shooter_1"),
     options=shooter_options,
     index=shooter_options.index(st.session_state.selected_match_analysis_shooter_1),
@@ -469,7 +412,7 @@ st.session_state.selected_match_analysis_shooter_1 = cmp_c1.selectbox(
     help=_("shooter_help"),
 )
 
-st.session_state.selected_match_analysis_shooter_2 = cmp_c2.selectbox(
+selected_shooter_2 = cmp_c2.selectbox(
     _("shooter_2"),
     options=shooter_options,
     index=shooter_options.index(st.session_state.selected_match_analysis_shooter_2),
@@ -477,17 +420,13 @@ st.session_state.selected_match_analysis_shooter_2 = cmp_c2.selectbox(
     help=_("shooter_help"),
 )
 
-st.session_state.selected_match_analysis_shooter_3 = cmp_c3.selectbox(
+selected_shooter_3 = cmp_c3.selectbox(
     _("shooter_3"),
     options=shooter_options,
     index=shooter_options.index(st.session_state.selected_match_analysis_shooter_3),
     key="dd_match_analysis_shooter_3",
     help=_("shooter_help"),
 )
-
-metric_options = [_("metric_pts"), _("metric_time"), _("metric_hf")]
-if st.session_state.selected_match_analysis_compare_metric not in metric_options:
-    st.session_state.selected_match_analysis_compare_metric = _("metric_hf")
 
 selected_metric_label = cmp_c4.selectbox(
     _("comparison_metric"),
@@ -496,16 +435,24 @@ selected_metric_label = cmp_c4.selectbox(
     key="dd_match_analysis_compare_metric",
     help=_("comparison_metric_help"),
 )
+
+show_stage_average = cmp_c5.checkbox(
+    _("show_stage_average"),
+    value=st.session_state.selected_match_analysis_show_stage_average,
+    key="dd_match_analysis_show_stage_average",
+    help=_("show_stage_average_help"),
+)
+
+st.session_state.selected_match_analysis_shooter_1 = selected_shooter_1
+st.session_state.selected_match_analysis_shooter_2 = selected_shooter_2
+st.session_state.selected_match_analysis_shooter_3 = selected_shooter_3
 st.session_state.selected_match_analysis_compare_metric = selected_metric_label
+st.session_state.selected_match_analysis_show_stage_average = show_stage_average
 
 selected_shooters = []
-for s in [
-    st.session_state.selected_match_analysis_shooter_1,
-    st.session_state.selected_match_analysis_shooter_2,
-    st.session_state.selected_match_analysis_shooter_3,
-]:
-    if s != shooter_placeholder and s not in selected_shooters:
-        selected_shooters.append(s)
+for shooter in [selected_shooter_1, selected_shooter_2, selected_shooter_3]:
+    if shooter != shooter_placeholder and shooter not in selected_shooters:
+        selected_shooters.append(shooter)
 
 if selected_metric_label == _("metric_pts"):
     metric_col = "stg_match_pts"
@@ -517,9 +464,40 @@ else:
     metric_col = "hf"
     metric_label = _("metric_hf")
 
-build_stage_comparison_chart(
+stage_comparison_chart(
     match_df,
     shooters=selected_shooters,
     metric_col=metric_col,
     metric_label=metric_label,
+    show_stage_average=show_stage_average,
+    stage_average_name=_("stage_average_name"),
+    empty_message=_("no_data"),
+    select_message=_("select_at_least_one_shooter"),
 )
+
+# ========= STAGE STANDING =========
+if show_stage_standing:
+    title_c1, title_c2 = st.columns([0.8, 0.2])
+    title_c1.subheader(_("stage_standing_header"))
+
+    if stage_options:
+        selected_stage = title_c2.selectbox(
+            _("stage"),
+            options=stage_options,
+            index=stage_options.index(st.session_state.selected_match_analysis_stage),
+            key="dd_match_analysis_stage_top",
+            help=_("stage_help"),
+        )
+        st.session_state.selected_match_analysis_stage = selected_stage
+
+        stage_stand = stage_standing(
+            match_df,
+            match=selected_match_name,
+            shooter_div=selected_division,
+            stg_n=selected_stage,
+        ).copy()
+
+    if selected_stage is None or stage_stand.empty:
+        st.info(_("no_data"))
+    else:
+        st.dataframe(stage_stand, use_container_width=True, hide_index=True)

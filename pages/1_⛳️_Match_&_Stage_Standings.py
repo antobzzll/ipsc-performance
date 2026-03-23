@@ -38,19 +38,26 @@ LANG = {
         "comparison_header": "Shooter Comparison by Stage",
         "comparison_text": (
             "Compare up to three shooters stage by stage within the selected match and division. "
-            "Choose points, time or hit factor as the comparison metric."
+            "Choose points, time, hit factor or rank as the comparison metric."
         ),
         "comparison_metric": "Comparison metric",
         "comparison_metric_help": "Metric shown on the line chart",
         "metric_pts": "Points",
         "metric_time": "Time",
         "metric_hf": "Hit Factor",
+        "metric_rank": "Rank",
         "shooter_1": "Shooter 1",
         "shooter_2": "Shooter 2",
         "shooter_3": "Shooter 3",
         "shooter_help": "Select a shooter to compare",
         "shooter_placeholder": "-- Select shooter --",
         "select_at_least_one_shooter": "Select at least one shooter to display the comparison chart.",
+        "comparison_summary_header": "Comparison Summary",
+        "summary_shooter": "Shooter",
+        "summary_rank": "Rank",
+        "summary_pct": "Match %",
+        "summary_points_pct": "Total Stage Points %",
+        "summary_total_time": "Total Time",
         "n_shooters": "Shooters",
         "n_stages": "Stages",
         "winner": "Winner",
@@ -86,19 +93,26 @@ LANG = {
         "comparison_header": "Confronto Tiratori per Stage",
         "comparison_text": (
             "Confronta fino a tre tiratori stage per stage nel match e nella divisione selezionati. "
-            "Scegli punti, tempo o hit factor come metrica di confronto."
+            "Scegli punti, tempo, hit factor o rank come metrica di confronto."
         ),
         "comparison_metric": "Metrica di confronto",
         "comparison_metric_help": "Metrica mostrata nel grafico lineare",
         "metric_pts": "Punti",
         "metric_time": "Tempo",
         "metric_hf": "Hit Factor",
+        "metric_rank": "Rank",
         "shooter_1": "Tiratore 1",
         "shooter_2": "Tiratore 2",
         "shooter_3": "Tiratore 3",
         "shooter_help": "Seleziona un tiratore da confrontare",
         "shooter_placeholder": "-- Seleziona tiratore --",
         "select_at_least_one_shooter": "Seleziona almeno un tiratore per visualizzare il grafico di confronto.",
+        "comparison_summary_header": "Riepilogo Confronto",
+        "summary_shooter": "Tiratore",
+        "summary_rank": "Rank",
+        "summary_pct": "% Match",
+        "summary_points_pct": "% Totale Punti Stage",
+        "summary_total_time": "Tempo Totale",
         "n_shooters": "Tiratori",
         "n_stages": "Stage",
         "winner": "Vincitore",
@@ -113,6 +127,61 @@ LANG = {
 def t(key: str, lang: str, **kwargs) -> str:
     base = LANG.get(lang, LANG["en"]).get(key, LANG["en"].get(key, key))
     return base.format(**kwargs) if kwargs else base
+
+
+def build_comparison_summary(
+    df: pd.DataFrame,
+    shooters: list[str],
+    standing_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if not shooters:
+        return pd.DataFrame()
+
+    required = {"shooter_name", "pts", "stg_max_pts", "time"}
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return pd.DataFrame()
+
+    tmp = df[df["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
+    if tmp.empty:
+        return pd.DataFrame()
+
+    for col in ["pts", "stg_max_pts", "time"]:
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce")
+
+    summary = (
+        tmp.groupby("shooter_name", as_index=False)
+        .agg(
+            total_pts=("pts", "sum"),
+            total_stg_max_pts=("stg_max_pts", "sum"),
+            total_time=("time", "sum"),
+        )
+    )
+
+    summary["points_pct"] = np.where(
+        summary["total_stg_max_pts"] > 0,
+        summary["total_pts"] / summary["total_stg_max_pts"],
+        np.nan,
+    )
+
+    if standing_df is not None and not standing_df.empty and "shooter_name" in standing_df.columns:
+        standing_cols = ["shooter_name"]
+        if "rank" in standing_df.columns:
+            standing_cols.append("rank")
+        if "pct" in standing_df.columns:
+            standing_cols.append("pct")
+
+        summary = summary.merge(
+            standing_df[standing_cols].drop_duplicates(subset=["shooter_name"]),
+            on="shooter_name",
+            how="left",
+        )
+
+    order_map = {name: i for i, name in enumerate(shooters)}
+    summary["sort_order"] = summary["shooter_name"].map(order_map)
+    summary = summary.sort_values("sort_order").drop(columns=["sort_order"])
+
+    return summary
 
 
 # ========= SIDEBAR: LANGUAGE =========
@@ -145,7 +214,7 @@ if "match_date" in df.columns:
 if "hf" not in df.columns and "hit_factor" in df.columns:
     df["hf"] = df["hit_factor"]
 
-for col in ["stg_n", "hf", "stg_match_pts", "time"]:
+for col in ["stg_n", "hf", "stg_match_pts", "time", "pts", "stg_max_pts", "pct", "div_factor_standing", "hf_pct"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -389,7 +458,7 @@ for key in [
     if key not in st.session_state or st.session_state[key] not in shooter_options:
         st.session_state[key] = shooter_placeholder
 
-metric_options = [_("metric_pts"), _("metric_time"), _("metric_hf")]
+metric_options = [_("metric_pts"), _("metric_time"), _("metric_hf"), _("metric_rank")]
 if "selected_match_analysis_compare_metric" not in st.session_state:
     st.session_state.selected_match_analysis_compare_metric = _("metric_hf")
 
@@ -454,12 +523,17 @@ for shooter in [selected_shooter_1, selected_shooter_2, selected_shooter_3]:
     if shooter != shooter_placeholder and shooter not in selected_shooters:
         selected_shooters.append(shooter)
 
+use_stage_rank_as_metric = selected_metric_label == _("metric_rank")
+
 if selected_metric_label == _("metric_pts"):
-    metric_col = "stg_match_pts"
+    metric_col = "pts"
     metric_label = _("metric_pts")
 elif selected_metric_label == _("metric_time"):
     metric_col = "time"
     metric_label = _("metric_time")
+elif selected_metric_label == _("metric_rank"):
+    metric_col = "div_factor_standing"
+    metric_label = _("metric_rank")
 else:
     metric_col = "hf"
     metric_label = _("metric_hf")
@@ -469,11 +543,49 @@ stage_comparison_chart(
     shooters=selected_shooters,
     metric_col=metric_col,
     metric_label=metric_label,
+    use_stage_rank_as_metric=use_stage_rank_as_metric,
     show_stage_average=show_stage_average,
     stage_average_name=_("stage_average_name"),
     empty_message=_("no_data"),
     select_message=_("select_at_least_one_shooter"),
 )
+
+comparison_summary = build_comparison_summary(
+    match_df,
+    selected_shooters,
+    standing_df=standing,
+)
+if not comparison_summary.empty:
+    st.subheader(_("comparison_summary_header"))
+
+    rename_map = {
+        "shooter_name": _("summary_shooter"),
+        "rank": _("summary_rank"),
+        "pct": _("summary_pct"),
+        "points_pct": _("summary_points_pct"),
+        "total_time": _("summary_total_time"),
+    }
+
+    cols = ["shooter_name", "rank", "pct", "points_pct", "total_time"]
+    cols = [c for c in cols if c in comparison_summary.columns]
+
+    display_summary = comparison_summary[cols].rename(columns=rename_map)
+
+    format_map = {}
+    if _("summary_rank") in display_summary.columns:
+        format_map[_("summary_rank")] = "{:.0f}"
+    if _("summary_pct") in display_summary.columns:
+        format_map[_("summary_pct")] = "{:.2%}"
+    if _("summary_points_pct") in display_summary.columns:
+        format_map[_("summary_points_pct")] = "{:.2%}"
+    if _("summary_total_time") in display_summary.columns:
+        format_map[_("summary_total_time")] = "{:.2f}"
+
+    st.dataframe(
+        display_summary.style.format(format_map),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 # ========= STAGE STANDING =========
 if show_stage_standing:

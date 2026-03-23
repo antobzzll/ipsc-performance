@@ -1048,10 +1048,7 @@ def compare_shooters_line(
     show_markers: bool = True,
     ref_val: float = 0.5,
 ):
-    import numpy as np
-    import pandas as pd
-    import plotly.graph_objects as go
-    import streamlit as st
+
 
     needed = {"shooter_name", "match_name", metric_col}
     missing = [c for c in needed if c not in df.columns]
@@ -1172,10 +1169,12 @@ def stage_comparison_chart(
     *,
     stage_col: str = "stg_n",
     shooter_col: str = "shooter_name",
-    pts_col: str = "stg_match_pts",
+    pts_col: str = "pts",
     time_col: str = "time",
     hf_col: str = "hf",
+    stage_pct_col: str = "hf_pct",
     stage_rank_col: str = "div_factor_standing",
+    use_stage_rank_as_metric: bool = False,
     show_stage_average: bool = True,
     stage_average_name: str = "Stage Avg",
     empty_message: str = "No data for the selected filters.",
@@ -1183,37 +1182,44 @@ def stage_comparison_chart(
 ):
     """
     Plot a stage-by-stage comparison for up to three shooters.
-    Optionally overlays the stage average of the selected metric.
+
+    Parameters
+    ----------
+    use_stage_rank_as_metric : bool
+        If True, use `stage_rank_col` on the y-axis instead of `metric_col`.
     """
     if not shooters:
         st.info(select_message)
         return
 
-    required_cols = {shooter_col, stage_col, metric_col}
+    y_col = stage_rank_col if use_stage_rank_as_metric else metric_col
+    y_label = "Stage Rank" if use_stage_rank_as_metric else metric_label
+
+    required_cols = {shooter_col, stage_col, y_col}
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
         st.info(f"Missing columns for comparison chart: {missing_cols}")
         return
 
-    # full stage data for stage-average calculation
     full_df = df.copy()
-    for col in [stage_col, metric_col, pts_col, time_col, hf_col, stage_rank_col]:
+    for col in [stage_col, metric_col, pts_col, time_col, hf_col, stage_pct_col, stage_rank_col]:
         if col in full_df.columns:
             full_df[col] = pd.to_numeric(full_df[col], errors="coerce")
-    full_df = full_df.dropna(subset=[stage_col, metric_col])
 
-    # selected shooters only
+    full_df = full_df.dropna(subset=[stage_col, y_col])
+
     chart_df = full_df[full_df[shooter_col].astype(str).isin([str(s) for s in shooters])].copy()
     if chart_df.empty:
         st.info(empty_message)
         return
 
     agg_map = {
-        "metric_value": (metric_col, "mean"),
-        "pts": (pts_col, "mean") if pts_col in chart_df.columns else (metric_col, "mean"),
-        "time": (time_col, "mean") if time_col in chart_df.columns else (metric_col, "mean"),
-        "hf": (hf_col, "mean") if hf_col in chart_df.columns else (metric_col, "mean"),
-        "stage_rank": (stage_rank_col, "min") if stage_rank_col in chart_df.columns else (metric_col, "mean"),
+        "metric_value": (y_col, "mean"),
+        "pts": (pts_col, "mean") if pts_col in chart_df.columns else (y_col, "mean"),
+        "time": (time_col, "mean") if time_col in chart_df.columns else (y_col, "mean"),
+        "hf": (hf_col, "mean") if hf_col in chart_df.columns else (y_col, "mean"),
+        "stage_pct": (stage_pct_col, "mean") if stage_pct_col in chart_df.columns else (y_col, "mean"),
+        "stage_rank": (stage_rank_col, "min") if stage_rank_col in chart_df.columns else (y_col, "mean"),
     }
 
     plot_df = (
@@ -1225,9 +1231,9 @@ def stage_comparison_chart(
     stage_avg_df = pd.DataFrame()
     if show_stage_average:
         stage_avg_df = (
-            full_df.groupby(stage_col, as_index=False)[metric_col]
+            full_df.groupby(stage_col, as_index=False)[y_col]
             .mean()
-            .rename(columns={metric_col: "stage_avg"})
+            .rename(columns={y_col: "stage_avg"})
             .sort_values(stage_col)
         )
 
@@ -1242,8 +1248,9 @@ def stage_comparison_chart(
                 name=stage_average_name,
                 line=dict(color="lightgrey", dash="dash", width=2),
                 hovertemplate=(
-                    # "Stage: %{x}<br>"
-                    f"{stage_average_name}: %{{y:.4f}}<extra></extra><br>"
+                    f"{stage_average_name}: "
+                    + ("%{y:.2f}" if use_stage_rank_as_metric else "%{y:.4f}")
+                    + "<extra></extra>"
                 ),
             )
         )
@@ -1259,6 +1266,7 @@ def stage_comparison_chart(
                 shooter_df["time"].to_numpy(dtype=float),
                 shooter_df["hf"].to_numpy(dtype=float),
                 shooter_df["stage_rank"].to_numpy(dtype=float),
+                shooter_df["stage_pct"].to_numpy(dtype=float),
             ]
         )
 
@@ -1270,21 +1278,34 @@ def stage_comparison_chart(
                 name=str(shooter),
                 customdata=customdata,
                 hovertemplate=(
-                    # "Shooter: %{fullData.name}<br>"
-                    "<br>Standing: %{customdata[3]:.0f}<br>"
+                    "Standing: %{customdata[3]:.0f}<br>"
+                    "Stage %: %{customdata[4]:.1%}<br>"
                     "Pts: %{customdata[0]:.2f}<br>"
                     "Time: %{customdata[1]:.2f}<br>"
                     "HF: %{customdata[2]:.4f}<br>"
+                    + (
+                        "Metric: %{y:.0f}<extra></extra>"
+                        if use_stage_rank_as_metric
+                        else f"{y_label}: %{{y}}<extra></extra>"
+                    )
                 ),
             )
         )
+
+    yaxis_dict = dict(title=y_label)
+
+    if use_stage_rank_as_metric:
+        yaxis_dict["autorange"] = "reversed"
+        yaxis_dict["dtick"] = 1
+    else:
+        yaxis_dict["tickformat"] = None
 
     fig.update_layout(
         template="plotly_white",
         margin=dict(l=10, r=10, t=10, b=10),
         hovermode="x unified",
         xaxis=dict(title="Stage", dtick=1),
-        yaxis=dict(title=metric_label),
+        yaxis=yaxis_dict,
         legend=dict(title=""),
     )
 

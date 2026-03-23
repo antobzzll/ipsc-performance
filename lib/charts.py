@@ -1295,16 +1295,42 @@ def stage_comparison_chart(
     yaxis_dict = dict(title=y_label)
 
     if use_stage_rank_as_metric:
-        yaxis_dict["autorange"] = "reversed"
-        yaxis_dict["dtick"] = 1
+        rank_vals = pd.to_numeric(plot_df["metric_value"], errors="coerce").dropna()
+        max_rank = int(np.ceil(rank_vals.max())) if not rank_vals.empty else 1
+        max_rank = max(max_rank, 1)
+
+        tick_vals = np.linspace(1, max_rank, 10)
+        tick_text = [str(int(round(v))) for v in tick_vals]
+
+        yaxis_dict.update(
+            autorange="reversed",
+            range=[max_rank, 1],
+            tickmode="array",
+            tickvals=tick_vals.tolist(),
+            ticktext=tick_text,
+            showgrid=True,
+            gridcolor="lightgray",
+            gridwidth=1,
+            zeroline=False,
+        )
     else:
-        yaxis_dict["tickformat"] = None
+        yaxis_dict.update(
+            showgrid=True,
+            gridcolor="lightgray",
+            gridwidth=1,
+            zeroline=False,
+        )
 
     fig.update_layout(
         template="plotly_white",
         margin=dict(l=10, r=10, t=10, b=10),
         hovermode="x unified",
-        xaxis=dict(title="Stage", dtick=1),
+        xaxis=dict(
+            title="Stage",
+            dtick=1,
+            showgrid=False,
+            zeroline=False,
+        ),
         yaxis=yaxis_dict,
         legend=dict(title=""),
     )

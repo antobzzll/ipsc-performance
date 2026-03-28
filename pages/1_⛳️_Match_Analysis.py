@@ -5,9 +5,9 @@ import streamlit as st
 from lib.data import get_data
 from lib.stats import match_standing, stage_standing
 from lib.utils import get_page_title
-from lib.charts import stage_comparison_chart
+from lib.charts import stage_comparison_chart, comparison_spider_chart
 
-st.set_page_config(page_title="Match & Stage Standings", layout="wide")
+st.set_page_config(page_title="Match Analysis", layout="wide")
 
 # ========= I18N =========
 LANG = {
@@ -65,6 +65,7 @@ LANG = {
         "selected_division": "Selected Division",
         "selected_stage": "Selected Stage",
         "winner_stage_count": "Winner Stage Wins",
+        "summary_div_time_pct": "Division Time %",
     },
     "it": {
         "select_language": "Lingua",
@@ -120,6 +121,7 @@ LANG = {
         "selected_division": "Divisione Selezionata",
         "selected_stage": "Stage Selezionato",
         "winner_stage_count": "Stage Vinti dal Vincitore",
+        "summary_div_time_pct": "% Tempo Divisione",
     },
 }
 
@@ -137,7 +139,7 @@ def build_comparison_summary(
     if not shooters:
         return pd.DataFrame()
 
-    required = {"shooter_name", "pts", "stg_max_pts", "time"}
+    required = {"shooter_name", "pts", "stg_max_pts", "time", "div_time_perc"}
     missing = [c for c in required if c not in df.columns]
     if missing:
         return pd.DataFrame()
@@ -146,15 +148,33 @@ def build_comparison_summary(
     if tmp.empty:
         return pd.DataFrame()
 
-    for col in ["pts", "stg_max_pts", "time"]:
-        tmp[col] = pd.to_numeric(tmp[col], errors="coerce")
+    sum_cols = ["pts", "stg_max_pts", "time", "a", "c", "d", "ded", "mi", "ns", "pe", "ot"]
+    mean_cols = ["div_time_perc"]
+
+    for col in sum_cols + mean_cols:
+        if col in tmp.columns:
+            tmp[col] = pd.to_numeric(tmp[col], errors="coerce")
+
+    agg_dict = {
+        "pts": "sum",
+        "stg_max_pts": "sum",
+        "time": "sum",
+        "div_time_perc": "mean",
+    }
+
+    for col in ["a", "c", "d", "ded", "mi", "ns", "pe", "ot"]:
+        if col in tmp.columns:
+            agg_dict[col] = "sum"
 
     summary = (
         tmp.groupby("shooter_name", as_index=False)
-        .agg(
-            total_pts=("pts", "sum"),
-            total_stg_max_pts=("stg_max_pts", "sum"),
-            total_time=("time", "sum"),
+        .agg(agg_dict)
+        .rename(
+            columns={
+                "pts": "total_pts",
+                "stg_max_pts": "total_stg_max_pts",
+                "time": "total_time",
+            }
         )
     )
 
@@ -562,11 +582,37 @@ if not comparison_summary.empty:
         "shooter_name": _("summary_shooter"),
         "rank": _("summary_rank"),
         "pct": _("summary_pct"),
-        "points_pct": _("summary_points_pct"),
+        "div_time_perc": _("summary_div_time_pct"),
         "total_time": _("summary_total_time"),
+        "a": "A",
+        "c": "C",
+        "d": "D",
+        "ded": "DED",
+        "mi": "MI",
+        "ns": "NS",
+        "pe": "PE",
+        "ot": "OT",
+        "total_pts": "Pts",
+        "points_pct": _("summary_points_pct"),
     }
 
-    cols = ["shooter_name", "rank", "pct", "points_pct", "total_time"]
+    cols = [
+        "shooter_name",
+        "rank",
+        "pct",
+        "div_time_perc",
+        "total_time",
+        "a",
+        "c",
+        "d",
+        "ded",
+        "mi",
+        "ns",
+        "pe",
+        "ot",
+        "total_pts",
+        "points_pct",
+    ]
     cols = [c for c in cols if c in comparison_summary.columns]
 
     display_summary = comparison_summary[cols].rename(columns=rename_map)
@@ -576,10 +622,15 @@ if not comparison_summary.empty:
         format_map[_("summary_rank")] = "{:.0f}"
     if _("summary_pct") in display_summary.columns:
         format_map[_("summary_pct")] = "{:.2%}"
-    if _("summary_points_pct") in display_summary.columns:
-        format_map[_("summary_points_pct")] = "{:.2%}"
+    if _("summary_div_time_pct") in display_summary.columns:
+        format_map[_("summary_div_time_pct")] = "{:.2%}"
     if _("summary_total_time") in display_summary.columns:
         format_map[_("summary_total_time")] = "{:.2f}"
+    for col in ["A", "C", "D", "DED", "MI", "NS", "PE", "OT", "Pts"]:
+        if col in display_summary.columns:
+            format_map[col] = "{:.0f}"
+    if _("summary_points_pct") in display_summary.columns:
+        format_map[_("summary_points_pct")] = "{:.2%}"
 
     st.dataframe(
         display_summary.style.format(format_map),
@@ -587,6 +638,18 @@ if not comparison_summary.empty:
         hide_index=True,
     )
 
+if not comparison_summary.empty:
+    comparison_spider_chart(
+        comparison_summary,
+        metric_cols=["pct", "div_time_perc", "points_pct"],
+        metric_labels={
+            "pct": _("summary_pct"),
+            "div_time_perc": _("summary_div_time_pct"),
+            "points_pct": _("summary_points_pct"),
+        },
+        # title="Spider Chart",
+        empty_message=_("no_data"),
+    )
 # ========= STAGE STANDING =========
 if show_stage_standing:
     title_c1, title_c2 = st.columns([0.8, 0.2])

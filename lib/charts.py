@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import plotly.colors as pc
 import numpy as np
 
@@ -1161,6 +1162,24 @@ def compare_shooters_line(
 
     st.plotly_chart(fig, use_container_width=True)
 
+
+def get_shooter_color_map(shooters: list[str]) -> dict[str, str]:
+    """
+    Deterministic color map for shooters, so all charts use the same colors
+    for the same selected shooters and in the same order.
+    """
+    palette = px.colors.qualitative.Plotly
+    return {
+        str(shooter): palette[i % len(palette)]
+        for i, shooter in enumerate(shooters)
+    }
+
+
+def get_shooter_color(shooter: str, color_map: dict[str, str] | None = None) -> str | None:
+    if color_map is None:
+        return None
+    return color_map.get(str(shooter))
+
 def stage_comparison_chart(
     df: pd.DataFrame,
     shooters: list[str],
@@ -1202,16 +1221,32 @@ def stage_comparison_chart(
         return
 
     full_df = df.copy()
-    for col in [stage_col, metric_col, pts_col, time_col, hf_col, stage_pct_col, stage_rank_col]:
+
+    numeric_cols = [
+        stage_col,
+        metric_col,
+        pts_col,
+        time_col,
+        hf_col,
+        stage_pct_col,
+        stage_rank_col,
+    ]
+    for col in numeric_cols:
         if col in full_df.columns:
             full_df[col] = pd.to_numeric(full_df[col], errors="coerce")
 
     full_df = full_df.dropna(subset=[stage_col, y_col])
+    if full_df.empty:
+        st.info(empty_message)
+        return
 
-    chart_df = full_df[full_df[shooter_col].astype(str).isin([str(s) for s in shooters])].copy()
+    shooters_str = [str(s) for s in shooters]
+    chart_df = full_df[full_df[shooter_col].astype(str).isin(shooters_str)].copy()
     if chart_df.empty:
         st.info(empty_message)
         return
+
+    color_map = get_shooter_color_map(shooters_str)
 
     agg_map = {
         "metric_value": (y_col, "mean"),
@@ -1227,6 +1262,10 @@ def stage_comparison_chart(
         .agg(**agg_map)
         .sort_values([stage_col, shooter_col])
     )
+
+    if plot_df.empty:
+        st.info(empty_message)
+        return
 
     stage_avg_df = pd.DataFrame()
     if show_stage_average:
@@ -1247,6 +1286,7 @@ def stage_comparison_chart(
                 mode="lines+markers",
                 name=stage_average_name,
                 line=dict(color="lightgrey", dash="dash", width=2),
+                marker=dict(color="lightgrey"),
                 hovertemplate=(
                     f"{stage_average_name}: "
                     + ("%{y:.2f}" if use_stage_rank_as_metric else "%{y:.4f}")
@@ -1255,10 +1295,12 @@ def stage_comparison_chart(
             )
         )
 
-    for shooter in shooters:
-        shooter_df = plot_df[plot_df[shooter_col].astype(str) == str(shooter)].copy()
+    for shooter in shooters_str:
+        shooter_df = plot_df[plot_df[shooter_col].astype(str) == shooter].copy()
         if shooter_df.empty:
             continue
+
+        shooter_color = color_map.get(shooter)
 
         customdata = np.column_stack(
             [
@@ -1275,7 +1317,9 @@ def stage_comparison_chart(
                 x=shooter_df[stage_col],
                 y=shooter_df["metric_value"],
                 mode="lines+markers",
-                name=str(shooter),
+                name=shooter,
+                line=dict(color=shooter_color, width=2),
+                marker=dict(color=shooter_color, size=8),
                 customdata=customdata,
                 hovertemplate=(
                     "Standing: %{customdata[3]:.0f}<br>"
@@ -1333,6 +1377,102 @@ def stage_comparison_chart(
         ),
         yaxis=yaxis_dict,
         legend=dict(title=""),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def comparison_spider_chart(
+    summary_df: pd.DataFrame,
+    *,
+    shooter_col: str = "shooter_name",
+    metric_cols: list[str] | None = None,
+    metric_labels: dict[str, str] | None = None,
+    title: str | None = None,
+    empty_message: str = "No data for the selected filters.",
+):
+    """
+    Spider / radar chart built from the comparison summary dataframe.
+
+    Expected default percentage metrics:
+        - pct
+        - div_time_perc
+        - points_pct
+    """
+    if summary_df is None or summary_df.empty:
+        st.info(empty_message)
+        return
+
+    if shooter_col not in summary_df.columns:
+        st.info(empty_message)
+        return
+
+    if metric_cols is None:
+        metric_cols = ["pct", "div_time_perc", "points_pct"]
+
+    if metric_labels is None:
+        metric_labels = {
+            "pct": "Match %",
+            "div_time_perc": "Division Time %",
+            "points_pct": "Stage Points %",
+        }
+
+    available_metrics = [c for c in metric_cols if c in summary_df.columns]
+    if not available_metrics:
+        st.info(empty_message)
+        return
+
+    plot_df = summary_df[[shooter_col] + available_metrics].copy()
+
+    for col in available_metrics:
+        plot_df[col] = pd.to_numeric(plot_df[col], errors="coerce")
+
+    plot_df = plot_df.dropna(how="all", subset=available_metrics)
+    if plot_df.empty:
+        st.info(empty_message)
+        return
+
+    shooters = plot_df[shooter_col].astype(str).tolist()
+    color_map = get_shooter_color_map(shooters)
+
+    categories = [metric_labels.get(c, c) for c in available_metrics]
+
+    fig = go.Figure()
+
+    for _, row in plot_df.iterrows():
+        shooter = str(row[shooter_col])
+        values = [row[c] for c in available_metrics]
+        values = [np.nan if pd.isna(v) else float(v) for v in values]
+
+        if all(pd.isna(v) for v in values):
+            continue
+
+        shooter_color = color_map.get(shooter)
+
+        fig.add_trace(
+            go.Scatterpolar(
+                r=values + [values[0]],
+                theta=categories + [categories[0]],
+                fill="toself",
+                name=shooter,
+                line=dict(color=shooter_color, width=2),
+                marker=dict(color=shooter_color),
+                hovertemplate="%{theta}: %{r:.1%}<extra>%{fullData.name}</extra>",
+            )
+        )
+
+    fig.update_layout(
+        # title=title,
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                tickformat=".0%",
+                range=[0, 1],
+            )
+        ),
+        showlegend=True,
+        height=520,
+        margin=dict(l=20, r=20, t=50 if title else 20, b=20),
     )
 
     st.plotly_chart(fig, use_container_width=True)

@@ -45,11 +45,12 @@ LANG = {
         "no_data": "No data for the selected filters.",
         "stage_perf_distr": "Stage Performance Distribution",
         "stage_perf_distr_help_text": (
-            "This chart shows how your scores stack up stage by stage in each selected match. "
-            "The box represents the central range of your normalized stage performance, while the whiskers "
-            "show the broader spread. Dots outside the whiskers are unusually high or low values. "
-            "A line connects the match medians so you can see the overall trend over time.\n\n"
-            "Why it matters: it helps you understand both your median level and your consistency."
+            "This chart shows how your stage-by-stage performances rank across the selected matches; "
+            "it helps you understand your median level and your consistency from match to match. "
+            "The box represents the central range of your performances relative to the division, while the whiskers show "
+            "the broader spread of your results (still within your usual range). Points outside the whiskers represent stages with unusually high or low performance, "
+            "while a line connects the match medians to highlight the trend over time. "
+            "Finally, the letter shown in each box represents the performance class for that match, calculated based on the average result percentage.\n\n"
         ),
         "stage_points_time_header": "Stage Points and Time",
         "stage_points_time_text": (
@@ -61,8 +62,7 @@ LANG = {
         "match_history_header": "Match History",
         "match_history_text": (
             "This chart shows your placement history across the selected matches. "
-            "You can switch between percentage-based and standing-based views to compare "
-            "your results over time."
+            "You can switch between percentage-based and standing-based views."
         ),
         "history_metric": "History metric",
         "percentage": "Percentage",
@@ -117,24 +117,24 @@ LANG = {
         "no_data": "Nessun dato per i filtri selezionati.",
         "stage_perf_distr": "Distribuzione delle Prestazioni per Stage",
         "stage_perf_distr_help_text": (
-            "Questo grafico mostra come si posizionano le tue prestazioni stage per stage nei match selezionati. "
-            "Il box rappresenta l’intervallo centrale delle tue prestazioni normalizzate, mentre i baffi mostrano "
-            "la dispersione più ampia. I punti fuori dai baffi sono valori insolitamente alti o bassi. "
-            "Una linea collega le mediane dei match per evidenziare l’andamento nel tempo.\n\n"
-            "Perché è utile: ti aiuta a capire sia il tuo livello mediano sia la tua costanza."
+            "Questo grafico mostra come si posizionano le tue prestazioni stage per stage nei match selezionati; "
+            "ti aiuta a capire il tuo livello mediano e la costanza di risultato gara per gara. "
+            "Il box rappresenta l’intervallo centrale delle tue prestazioni rispetto alla divisione, mentre i baffi mostrano "
+            'la dispersione più ampia (ma comunque "nelle le tue corde"). I punti fuori dai baffi rappresentano stage con performance insolitamente alte o basse, '
+            "mentre una linea collega le mediane dei match per evidenziare l’andamento nel tempo. "
+            "Infine, la lettera posta in ogni box rappresenta la classe di performance per quella gara, calcolata in base alla percentuale media di risultati.\n\n"
         ),
         "stage_points_time_header": "Punti di Stage e Tempo",
         "stage_points_time_text": (
-            "Questo grafico mostra i tuoi risultati per singolo stage (punti vs tempo) per ciascun match, "
-            "con un rombo che indica la media del match. Ogni punto è uno stage, colorato per match, "
-            "così da vedere come variano velocità e accuratezza.\n\n"
-            "Perché è utile: mette in evidenza stage forti e deboli, aiutandoti a focalizzare l’allenamento."
+            "Questo grafico mostra i tuoi risultati per singolo stage (percentuale di punti ottenuti vs. percentuale di tempo rispetto alla divisione). "
+            "Ogni un rombo corrisponde alla performance media tra punti e tempo per ogni gara selezionata, mentre ogni punto rappresenta uno stage, colorato in base alla relativa competizione. "
+            "La linea che congiunge i centroidi rappresenta la regressione lineare, ovvero la relazione tra punti e tempo nel quadro generale della tua carriera. "
+            "Se essa è crescente indica la situazione ottimale, ovvero che punti e tempo aumentano insieme; se decrescente, significa che i punti diminuiscono con l'aumentare del tempo.\n\n"
         ),
         "match_history_header": "Storico Match",
         "match_history_text": (
-            "Questo grafico mostra l’andamento dei tuoi piazzamenti nei match selezionati. "
-            "Puoi passare da una vista percentuale a una vista per piazzamento per confrontare "
-            "i risultati nel tempo."
+            "Questo grafico mostra l’andamento nel tempo dei risultati dei match selezionati. "
+            "Puoi passare da una vista percentuale a una vista per piazzamento."
         ),
         "history_metric": "Metrica storico",
         "percentage": "Percentuale",

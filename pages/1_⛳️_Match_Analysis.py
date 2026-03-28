@@ -404,7 +404,7 @@ standing = match_standing(
     match=selected_match_name,
     shooter_div=selected_division,
 ).copy()
-standing = standing.drop(columns=["shooter_div"], errors="ignore")
+standing = standing.drop(columns=["shooter_div", 'championship'], errors="ignore")
 
 stage_stand = pd.DataFrame()
 if show_stage_standing and selected_stage is not None:

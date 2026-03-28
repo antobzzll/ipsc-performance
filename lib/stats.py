@@ -274,13 +274,13 @@ def match_standing(
             "championship",
             "shooter_div",
             "rank",
-            "class_rank",
             shooter_name_col,
-            shooter_class_col,
             match_pts_col,
             "pct",
+            shooter_class_col,
             "pct_vs_non_m_gm",
             "pct_vs_non_m_gm_minus_16",
+            "class_rank",
             "class_pct",
         ]
     ].rename(

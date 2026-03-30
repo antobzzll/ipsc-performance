@@ -1577,7 +1577,7 @@ def hit_profile_bar_chart(
                 customdata=customdata,
                 hovertemplate=(
                     "Shooter: %{fullData.name}<br>"
-                    "Type: %{x}<br>"
+                    "Point: %{x}<br>"
                     "Total: %{y:.0f}<extra></extra>"
                 ),
             )
@@ -1601,7 +1601,7 @@ def hit_profile_bar_chart(
             gridwidth=1,
             zeroline=False,
         ),
-        legend=dict(title=""),
+        # legend=dict(title=""),
     )
 
     st.plotly_chart(fig, use_container_width=True)

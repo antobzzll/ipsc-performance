@@ -5,7 +5,7 @@ import streamlit as st
 from lib.data import get_data
 from lib.stats import match_standing, stage_standing
 from lib.utils import get_page_title
-from lib.charts import stage_comparison_chart, comparison_spider_chart
+from lib.charts import stage_comparison_chart, comparison_spider_chart, hit_profile_bar_chart
 
 st.set_page_config(page_title="Match Analysis", layout="wide")
 
@@ -639,17 +639,39 @@ if not comparison_summary.empty:
     )
 
 if not comparison_summary.empty:
-    comparison_spider_chart(
-        comparison_summary,
-        metric_cols=["pct", "div_time_perc", "points_pct"],
-        metric_labels={
-            "pct": _("summary_pct"),
-            "div_time_perc": _("summary_div_time_pct"),
-            "points_pct": _("summary_points_pct"),
-        },
-        # title="Spider Chart",
-        empty_message=_("no_data"),
-    )
+    chart_c1, chart_c2 = st.columns([1.2, 0.8])
+
+    with chart_c1:
+        comparison_spider_chart(
+            comparison_summary,
+            metric_cols=["pct", "div_time_perc", "points_pct"],
+            metric_labels={
+                "pct": _("summary_pct"),
+                "div_time_perc": _("summary_div_time_pct"),
+                "points_pct": _("summary_points_pct"),
+            },
+            empty_message=_("no_data"),
+        )
+
+    with chart_c2:
+        hit_profile_bar_chart(
+            match_df,
+            shooters=selected_shooters,
+            metric_cols=["a", "c", "d", "ded", "mi", "ns", "pe", "ot"],
+            metric_labels={
+                "a": "A",
+                "c": "C",
+                "d": "D",
+                "ded": "DED",
+                "mi": "MI",
+                "ns": "NS",
+                "pe": "PE",
+                "ot": "OT",
+            },
+            # title="Hit Profile",
+            empty_message=_("no_data"),
+            select_message=_("select_at_least_one_shooter"),
+        )
 # ========= STAGE STANDING =========
 if show_stage_standing:
     title_c1, title_c2 = st.columns([0.8, 0.2])

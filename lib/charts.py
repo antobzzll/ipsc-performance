@@ -1327,11 +1327,11 @@ def stage_comparison_chart(
                     "Pts: %{customdata[0]:.2f}<br>"
                     "Time: %{customdata[1]:.2f}<br>"
                     "HF: %{customdata[2]:.4f}<br>"
-                    + (
-                        "Metric: %{y:.0f}<extra></extra>"
-                        if use_stage_rank_as_metric
-                        else f"{y_label}: %{{y}}<extra></extra>"
-                    )
+                    # + (
+                    #     "Metric: %{y:.0f}<extra></extra>"
+                    #     if use_stage_rank_as_metric
+                    #     else f"{y_label}: %{{y}}<extra></extra>"
+                    # )
                 ),
             )
         )
@@ -1473,6 +1473,135 @@ def comparison_spider_chart(
         showlegend=True,
         height=520,
         margin=dict(l=20, r=20, t=50 if title else 20, b=20),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    
+def hit_profile_bar_chart(
+    df: pd.DataFrame,
+    shooters: list[str],
+    *,
+    shooter_col: str = "shooter_name",
+    metric_cols: list[str] | None = None,
+    metric_labels: dict[str, str] | None = None,
+    title: str | None = None,
+    empty_message: str = "No data for the selected filters.",
+    select_message: str = "Select at least one shooter.",
+):
+    """
+    Grouped bar chart showing absolute hit / penalty totals
+    for each selected shooter.
+
+    Default metrics:
+        - a
+        - c
+        - d
+        - ded
+        - mi
+        - ns
+        - pe
+        - ot
+    """
+    if not shooters:
+        st.info(select_message)
+        return
+
+    if shooter_col not in df.columns:
+        st.info(empty_message)
+        return
+
+    if metric_cols is None:
+        metric_cols = ["a", "c", "d", "ded", "mi", "ns", "pe", "ot"]
+
+    if metric_labels is None:
+        metric_labels = {
+            "a": "A",
+            "c": "C",
+            "d": "D",
+            "ded": "DED",
+            "mi": "MI",
+            "ns": "NS",
+            "pe": "PE",
+            "ot": "OT",
+        }
+
+    available_metrics = [c for c in metric_cols if c in df.columns]
+    if not available_metrics:
+        st.info(empty_message)
+        return
+
+    shooters_str = [str(s) for s in shooters]
+
+    tmp = df[df[shooter_col].astype(str).isin(shooters_str)].copy()
+    if tmp.empty:
+        st.info(empty_message)
+        return
+
+    for col in available_metrics:
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0)
+
+    plot_df = (
+        tmp.groupby(shooter_col, as_index=False)[available_metrics]
+        .sum()
+    )
+
+    if plot_df.empty:
+        st.info(empty_message)
+        return
+
+    color_map = get_shooter_color_map(shooters_str)
+    x_labels = [metric_labels.get(c, c) for c in available_metrics]
+
+    fig = go.Figure()
+
+    for shooter in shooters_str:
+        row = plot_df.loc[plot_df[shooter_col].astype(str) == shooter]
+        if row.empty:
+            continue
+
+        values = row.iloc[0][available_metrics].tolist()
+        values = [0.0 if pd.isna(v) else float(v) for v in values]
+        shooter_color = color_map.get(shooter)
+
+        customdata = np.column_stack([
+            available_metrics,
+            values,
+        ])
+
+        fig.add_trace(
+            go.Bar(
+                x=x_labels,
+                y=values,
+                name=shooter,
+                marker=dict(color=shooter_color),
+                customdata=customdata,
+                hovertemplate=(
+                    "Shooter: %{fullData.name}<br>"
+                    "Type: %{x}<br>"
+                    "Total: %{y:.0f}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.update_layout(
+        # title=title,
+        template="plotly_white",
+        barmode="group",
+        height=520,
+        margin=dict(l=20, r=20, t=50 if title else 20, b=20),
+        xaxis=dict(
+            # title="Point Type",
+            showgrid=False,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Total",
+            showgrid=True,
+            gridcolor="lightgray",
+            gridwidth=1,
+            zeroline=False,
+        ),
+        legend=dict(title=""),
     )
 
     st.plotly_chart(fig, use_container_width=True)

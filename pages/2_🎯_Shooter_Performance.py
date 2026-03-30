@@ -243,10 +243,18 @@ def merge_stage_predictions(df: pd.DataFrame) -> pd.DataFrame:
     return out.merge(preds[keep_cols], on=keys, how="left", validate="many_to_one")
 
 
-# ========= SIDEBAR: LANGUAGE =========
-if "language" not in st.session_state:
-    st.session_state.language = "it"
+# ========= SESSION STATE DEFAULTS =========
+SESSION_DEFAULTS = {
+    "language": "it",
+    "selected_shooter": "-- Select shooter --",
+    "dd_true_pts": True,
+}
 
+for key, value in SESSION_DEFAULTS.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# ========= SIDEBAR: LANGUAGE =========
 language_options = list(LANG.keys())
 language = st.sidebar.selectbox(
     t("select_language", st.session_state.language),
@@ -263,7 +271,7 @@ stages = prepare_stages_df(get_data("fitds_stages"))
 # ========= PAGE TITLE =========
 st.title(get_page_title())
 
-# ========= SIDEBAR GLOBAL OPTIONS =========
+# ========= GLOBAL SETTINGS =========
 norm = "div"
 norm_header = "Division"
 factor_col = "div_factor_perc"
@@ -271,32 +279,29 @@ norm_pts_col = "div_pts_perc"
 time_col = "div_time_perc"
 chart_norm = "div"
 
+# ========= SIDEBAR GLOBAL OPTIONS =========
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
 
 # ========= SHOOTER SELECTION =========
 shooters = ["-- Select shooter --"] + sorted(stages["shooter_name"].dropna().unique().tolist())
-default_shooter = "-- Select shooter --"
-
-if "selected_shooter" not in st.session_state:
-    st.session_state.selected_shooter = default_shooter
 
 top_c1, top_c2, top_c3, top_c4 = st.columns(4, vertical_alignment="bottom")
 
-st.session_state.selected_shooter = top_c1.selectbox(
+selected_shooter = top_c1.selectbox(
     _("shooter"),
     shooters,
-    index=shooters.index(st.session_state.selected_shooter)
-    if st.session_state.selected_shooter in shooters else 0,
+    index=shooters.index(st.session_state.selected_shooter) if st.session_state.selected_shooter in shooters else 0,
     key="dd_shooter",
     help=_("shooter_help"),
 )
+st.session_state.selected_shooter = selected_shooter
 
-if st.session_state.selected_shooter == "-- Select shooter --":
+if selected_shooter == "-- Select shooter --":
     st.info(_("select_shooter_first"))
     st.stop()
 
 # ========= BASE SHOOTER DATA =========
-sh_stages = stages.loc[stages["shooter_name"] == st.session_state.selected_shooter].copy().reset_index(drop=True)
+sh_stages = stages.loc[stages["shooter_name"] == selected_shooter].copy().reset_index(drop=True)
 
 if "shooter_div" not in sh_stages.columns and "div" in sh_stages.columns:
     sh_stages["shooter_div"] = sh_stages["div"]
@@ -427,11 +432,9 @@ if df.empty:
 
 stage_class_preds = merge_stage_predictions(df)
 
-# ========= DEFAULT CHART SETTINGS =========
-if "dd_true_pts" not in st.session_state:
-    st.session_state.dd_true_pts = True
-
-pts_col = "pts_pct" if st.session_state.dd_true_pts else norm_pts_col
+# ========= DERIVED SETTINGS =========
+true_points_default = st.session_state.dd_true_pts
+pts_col = "pts_pct" if true_points_default else norm_pts_col
 
 # ========= TOP METRICS =========
 avg_factor = mean_metric(df, factor_col)
@@ -445,9 +448,9 @@ top_c2.metric(
 )
 
 top_c3.metric(
-    _("avg_stage_pts_pct_true") if st.session_state.dd_true_pts else _("avg_stage_pts_pct", scope=norm_header),
+    _("avg_stage_pts_pct_true") if true_points_default else _("avg_stage_pts_pct", scope=norm_header),
     f"{avg_pts:.0%}" if pd.notna(avg_pts) else "—",
-    help=_("avg_stage_pts_pct_true_help") if st.session_state.dd_true_pts else _("avg_stage_pts_pct_help"),
+    help=_("avg_stage_pts_pct_true_help") if true_points_default else _("avg_stage_pts_pct_help"),
 )
 
 top_c4.metric(
@@ -507,7 +510,7 @@ if history_df.empty:
 else:
     shooter_match_history(
         history_df,
-        shooter_name=st.session_state.selected_shooter,
+        shooter_name=selected_shooter,
         shooter_div=div_filter if div_filter else (
             sh_stages["shooter_div"].dropna().iloc[0]
             if "shooter_div" in sh_stages.columns and not sh_stages["shooter_div"].dropna().empty
@@ -557,7 +560,6 @@ show_reg = scatter_opts_c3.checkbox(
 
 true_points = scatter_opts_c4.checkbox(
     _("true_points"),
-    value=st.session_state.dd_true_pts,
     key="dd_true_pts",
     help=_("true_points_help"),
 )

@@ -5,7 +5,11 @@ import streamlit as st
 from lib.data import get_data
 from lib.stats import match_standing, stage_standing
 from lib.utils import get_page_title
-from lib.charts import stage_comparison_chart, comparison_spider_chart, hit_profile_bar_chart
+from lib.charts import (
+    stage_comparison_chart,
+    comparison_spider_chart,
+    hit_profile_bar_chart,
+)
 
 st.set_page_config(page_title="Match Analysis", layout="wide")
 
@@ -57,6 +61,7 @@ LANG = {
         "summary_rank": "Rank",
         "summary_pct": "Match %",
         "summary_points_pct": "Total Stage Points %",
+        "summary_match_points": "Match Points",
         "summary_total_time": "Total Time",
         "n_shooters": "Shooters",
         "n_stages": "Stages",
@@ -113,6 +118,7 @@ LANG = {
         "summary_rank": "Rank",
         "summary_pct": "% Match",
         "summary_points_pct": "% Totale Punti Stage",
+        "summary_match_points": "Match Points",
         "summary_total_time": "Tempo Totale",
         "n_shooters": "Tiratori",
         "n_stages": "Stage",
@@ -131,6 +137,15 @@ def t(key: str, lang: str, **kwargs) -> str:
     return base.format(**kwargs) if kwargs else base
 
 
+# ========= HELPERS =========
+def safe_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
 def build_comparison_summary(
     df: pd.DataFrame,
     shooters: list[str],
@@ -140,20 +155,29 @@ def build_comparison_summary(
         return pd.DataFrame()
 
     required = {"shooter_name", "pts", "stg_max_pts", "time", "div_time_perc"}
-    missing = [c for c in required if c not in df.columns]
-    if missing:
+    if not required.issubset(df.columns):
         return pd.DataFrame()
 
     tmp = df[df["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
     if tmp.empty:
         return pd.DataFrame()
 
-    sum_cols = ["pts", "stg_max_pts", "time", "a", "c", "d", "ded", "mi", "ns", "pe", "ot"]
-    mean_cols = ["div_time_perc"]
-
-    for col in sum_cols + mean_cols:
-        if col in tmp.columns:
-            tmp[col] = pd.to_numeric(tmp[col], errors="coerce")
+    numeric_cols = [
+        "pts",
+        "stg_max_pts",
+        "stg_match_pts",
+        "time",
+        "div_time_perc",
+        "a",
+        "c",
+        "d",
+        "ded",
+        "mi",
+        "ns",
+        "pe",
+        "ot",
+    ]
+    tmp = safe_numeric(tmp, numeric_cols)
 
     agg_dict = {
         "pts": "sum",
@@ -161,6 +185,9 @@ def build_comparison_summary(
         "time": "sum",
         "div_time_perc": "mean",
     }
+
+    if "stg_match_pts" in tmp.columns:
+        agg_dict["stg_match_pts"] = "sum"
 
     for col in ["a", "c", "d", "ded", "mi", "ns", "pe", "ot"]:
         if col in tmp.columns:
@@ -173,6 +200,7 @@ def build_comparison_summary(
             columns={
                 "pts": "total_pts",
                 "stg_max_pts": "total_stg_max_pts",
+                "stg_match_pts": "total_stg_match_pts",
                 "time": "total_time",
             }
         )
@@ -234,11 +262,31 @@ if "match_date" in df.columns:
 if "hf" not in df.columns and "hit_factor" in df.columns:
     df["hf"] = df["hit_factor"]
 
-for col in ["stg_n", "hf", "stg_match_pts", "time", "pts", "stg_max_pts", "pct", "div_factor_standing", "hf_pct"]:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+df = safe_numeric(
+    df,
+    [
+        "stg_n",
+        "hf",
+        "stg_match_pts",
+        "time",
+        "pts",
+        "stg_max_pts",
+        "pct",
+        "div_factor_standing",
+        "hf_pct",
+        "div_time_perc",
+        "a",
+        "c",
+        "d",
+        "ded",
+        "mi",
+        "ns",
+        "pe",
+        "ot",
+    ],
+)
 
-st.title(f"{get_page_title()}")
+st.title(get_page_title())
 
 # ========= FILTERS =========
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))
@@ -344,6 +392,7 @@ divisions = (
     if "shooter_div" in match_df.columns
     else []
 )
+
 if not divisions:
     st.warning(_("no_data"))
     st.stop()
@@ -395,7 +444,6 @@ if stage_options:
         or st.session_state.selected_match_analysis_stage not in stage_options
     ):
         st.session_state.selected_match_analysis_stage = stage_options[0]
-
     selected_stage = st.session_state.selected_match_analysis_stage
 
 # ========= STANDINGS =========
@@ -404,7 +452,7 @@ standing = match_standing(
     match=selected_match_name,
     shooter_div=selected_division,
 ).copy()
-standing = standing.drop(columns=["shooter_div", 'championship'], errors="ignore")
+standing = standing.drop(columns=["shooter_div", "championship"], errors="ignore")
 
 stage_stand = pd.DataFrame()
 if show_stage_standing and selected_stage is not None:
@@ -421,6 +469,7 @@ winner_name = (
     if not standing.empty and "shooter_name" in standing.columns
     else None
 )
+
 n_shooters = (
     match_df["shooter_name"].nunique()
     if "shooter_name" in match_df.columns
@@ -479,6 +528,7 @@ for key in [
         st.session_state[key] = shooter_placeholder
 
 metric_options = [_("metric_pts"), _("metric_time"), _("metric_hf"), _("metric_rank")]
+
 if "selected_match_analysis_compare_metric" not in st.session_state:
     st.session_state.selected_match_analysis_compare_metric = _("metric_hf")
 
@@ -575,6 +625,7 @@ comparison_summary = build_comparison_summary(
     selected_shooters,
     standing_df=standing,
 )
+
 if not comparison_summary.empty:
     st.subheader(_("comparison_summary_header"))
 
@@ -584,6 +635,7 @@ if not comparison_summary.empty:
         "pct": _("summary_pct"),
         "div_time_perc": _("summary_div_time_pct"),
         "total_time": _("summary_total_time"),
+        "total_stg_match_pts": _("summary_match_points"),
         "a": "A",
         "c": "C",
         "d": "D",
@@ -600,6 +652,7 @@ if not comparison_summary.empty:
         "shooter_name",
         "rank",
         "pct",
+        "total_stg_match_pts",
         "div_time_perc",
         "total_time",
         "a",
@@ -622,6 +675,8 @@ if not comparison_summary.empty:
         format_map[_("summary_rank")] = "{:.0f}"
     if _("summary_pct") in display_summary.columns:
         format_map[_("summary_pct")] = "{:.2%}"
+    if _("summary_match_points") in display_summary.columns:
+        format_map[_("summary_match_points")] = "{:.2f}"
     if _("summary_div_time_pct") in display_summary.columns:
         format_map[_("summary_div_time_pct")] = "{:.2%}"
     if _("summary_total_time") in display_summary.columns:
@@ -668,10 +723,10 @@ if not comparison_summary.empty:
                 "pe": "PE",
                 "ot": "OT",
             },
-            # title="Hit Profile",
             empty_message=_("no_data"),
             select_message=_("select_at_least_one_shooter"),
         )
+
 # ========= STAGE STANDING =========
 if show_stage_standing:
     title_c1, title_c2 = st.columns([0.8, 0.2])

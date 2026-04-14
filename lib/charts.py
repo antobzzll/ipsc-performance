@@ -1605,3 +1605,212 @@ def hit_profile_bar_chart(
     )
 
     st.plotly_chart(fig, use_container_width=True)
+    
+def shooter_match_pts_time_history(
+    df: pd.DataFrame,
+    shooter_name: str,
+    show_ref: bool = True,
+    lock_y: bool = False,
+):
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+    import streamlit as st
+
+    from lib.stats import build_comparison_summary
+
+    needed = {
+        "match_name",
+        "match_date",
+        "shooter_name",
+        "pts",
+        "stg_max_pts",
+        "time",
+        "div_time_perc",
+    }
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.info(f"Missing required columns for match history chart: {missing}")
+        return
+
+    if not shooter_name:
+        st.info("Select a shooter.")
+        return
+
+    work = df.copy()
+    work["match_date"] = pd.to_datetime(work["match_date"], errors="coerce")
+
+    numeric_cols = ["pts", "stg_max_pts", "time", "div_time_perc", "stg_match_pts"]
+    for col in numeric_cols:
+        if col in work.columns:
+            work[col] = pd.to_numeric(work[col], errors="coerce")
+
+    work = work.dropna(subset=["match_name", "shooter_name"])
+    if work.empty:
+        st.info("No data available.")
+        return
+
+    matches = (
+        work[["match_name", "match_date"]]
+        .drop_duplicates()
+        .sort_values(["match_date", "match_name"])
+        .reset_index(drop=True)
+    )
+
+    rows = []
+
+    for _, r in matches.iterrows():
+        match_name = r["match_name"]
+        match_date = r["match_date"]
+
+        match_df = work[work["match_name"] == match_name].copy()
+        if match_df.empty:
+            continue
+
+        if shooter_name not in match_df["shooter_name"].astype(str).unique():
+            continue
+
+        shooters_in_match = (
+            match_df["shooter_name"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+        summary = build_comparison_summary(
+            match_df,
+            shooters=shooters_in_match,
+            standing_df=None,
+        )
+
+        if summary.empty:
+            continue
+
+        shooter_row = summary[summary["shooter_name"].astype(str) == str(shooter_name)].copy()
+        if shooter_row.empty:
+            continue
+
+        shooter_row = shooter_row.iloc[0]
+
+        rows.append(
+            {
+                "match_name": match_name,
+                "match_date": match_date,
+                "shooter_name": shooter_name,
+                "points_pct": pd.to_numeric(shooter_row.get("points_pct"), errors="coerce"),
+                "div_time_perc": pd.to_numeric(shooter_row.get("div_time_perc"), errors="coerce"),
+                "total_pts": pd.to_numeric(shooter_row.get("total_pts"), errors="coerce"),
+                "total_stg_max_pts": pd.to_numeric(shooter_row.get("total_stg_max_pts"), errors="coerce"),
+                "total_time": pd.to_numeric(shooter_row.get("total_time"), errors="coerce"),
+                "total_stg_match_pts": pd.to_numeric(shooter_row.get("total_stg_match_pts"), errors="coerce")
+                if "total_stg_match_pts" in shooter_row.index
+                else np.nan,
+                "rank": pd.to_numeric(shooter_row.get("rank"), errors="coerce")
+                if "rank" in shooter_row.index
+                else np.nan,
+                "pct": pd.to_numeric(shooter_row.get("pct"), errors="coerce")
+                if "pct" in shooter_row.index
+                else np.nan,
+            }
+        )
+
+    if not rows:
+        st.info("No match history data available for selected shooter.")
+        return
+
+    plot_df = pd.DataFrame(rows).sort_values(["match_date", "match_name"]).reset_index(drop=True)
+    plot_df["match_label"] = plot_df["match_name"].astype(str)
+
+    pts_color = "rgba(31, 119, 180, 1.0)"
+    time_color = "rgba(255, 127, 14, 1.0)"
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["match_label"],
+            y=plot_df["points_pct"],
+            mode="lines+markers",
+            name="Points %",
+            line=dict(color=pts_color, width=2.5),
+            marker=dict(color=pts_color, size=8),
+            customdata=np.column_stack([
+                plot_df["match_date"].dt.strftime("%Y-%m-%d").fillna(""),
+                plot_df["total_pts"].astype(float),
+                plot_df["total_stg_max_pts"].astype(float),
+                plot_df["total_stg_match_pts"].fillna(np.nan).astype(float),
+                # plot_df["rank"].fillna(np.nan).astype(float),
+                # plot_df["pct"].fillna(np.nan).astype(float),
+            ]),
+            hovertemplate=(
+                "Match: %{x}<br>"
+                "Date: %{customdata[0]}<br>"
+                "Total pts: %{customdata[1]:.2f}<br>"
+                "Available pts: %{customdata[2]:.2f}<br>"
+                "Match pts: %{customdata[3]:.2f}<br>"
+                # "Rank: %{customdata[4]:.0f}<br>"
+                # "Standing %: %{customdata[5]:.1%}<br>"
+                "Points %: %{y:.1%}<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["match_label"],
+            y=plot_df["div_time_perc"],
+            mode="lines+markers",
+            name="Division time %",
+            line=dict(color=time_color, width=2.0, dash="dash"),
+            marker=dict(color=time_color, size=7, symbol="circle-open"),
+            customdata=np.column_stack([
+                plot_df["match_date"].dt.strftime("%Y-%m-%d").fillna(""),
+                plot_df["total_time"].astype(float),
+                # plot_df["rank"].fillna(np.nan).astype(float),
+                # plot_df["pct"].fillna(np.nan).astype(float),
+            ]),
+            hovertemplate=(
+                "Match: %{x}<br>"
+                "Date: %{customdata[0]}<br>"
+                "Total time: %{customdata[1]:.2f}<br>"
+                # "Rank: %{customdata[2]:.0f}<br>"
+                # "Standing %: %{customdata[3]:.1%}<br>"
+                "Division time %: %{y:.1%}<extra></extra>"
+            ),
+        )
+    )
+
+    # if show_ref:
+    #     fig.add_hline(
+    #         y=1.0,
+    #         line_dash="dot",
+    #         line_color="gray",
+    #         line_width=1.5,
+    #         annotation_text="100%",
+    #         annotation_position="top left",
+    #     )
+
+    ymax = plot_df[["points_pct", "div_time_perc"]].max(skipna=True).max()
+    y_range = [0, max(1.05, float(ymax) * 1.05)] if lock_y and pd.notna(ymax) else None
+
+    fig.update_layout(
+        template="plotly_white",
+        margin=dict(l=10, r=10, t=10, b=10),
+        hovermode="closest",
+        xaxis=dict(
+            title="Match",
+            tickangle=45,
+            categoryorder="array",
+            categoryarray=plot_df["match_label"].tolist(),
+        ),
+        yaxis=dict(
+            title="Percentage",
+            tickformat=".0%",
+            range=y_range,
+        ),
+        legend=dict(title="Metric"),
+        showlegend=True,
+    )
+
+    st.plotly_chart(fig, use_container_width=True)

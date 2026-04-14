@@ -4,7 +4,12 @@ import streamlit as st
 
 from lib.data import get_data
 from lib.utils import get_page_title
-from lib.charts import stage_distr, stage_scatter, shooter_match_history
+from lib.charts import (
+    stage_distr,
+    stage_scatter,
+    shooter_match_history,
+    shooter_match_pts_time_history,
+)
 
 st.set_page_config(page_title="Shooter Performance", layout="wide")
 
@@ -67,6 +72,11 @@ LANG = {
         "history_metric": "History metric",
         "percentage": "Percentage",
         "standing": "Standing",
+        "match_pts_time_history_header": "Points and Time Trend",
+        "match_pts_time_history_text": (
+            "This chart shows two match-level trend lines over time: points percentage based on the comparison summary, "
+            "and average division time percentage from the same summary."
+        ),
         "show_stage_points": "Show stage points",
         "show_stage_points_help": "Show individual stage points on scatter chart",
         "show_centroid_labels": "Show centroid labels",
@@ -139,6 +149,11 @@ LANG = {
         "history_metric": "Metrica storico",
         "percentage": "Percentuale",
         "standing": "Classifica",
+        "match_pts_time_history_header": "Storico Percentuale Punti e Tempo",
+        "match_pts_time_history_text": (
+            "Per ogni gara selezionata, questo grafico mostra "
+            "la percentuale di punti ottenuti e la percentuale di tempo impiegato rispetto al tiratore più veloce nella divisione."
+        ),
         "show_stage_points": "Mostra punti stage",
         "show_stage_points_help": "Mostra i punti dei singoli stage nello scatter",
         "show_centroid_labels": "Mostra etichette centroidi",
@@ -187,6 +202,9 @@ def prepare_stages_df(df: pd.DataFrame) -> pd.DataFrame:
         "cls_pts_perc",
         "cls_time_perc",
         "cls_factor_perc",
+        "pts",
+        "stg_max_pts",
+        "time",
     ]
     for col in numeric_cols:
         if col in out.columns:
@@ -272,7 +290,6 @@ stages = prepare_stages_df(get_data("fitds_stages"))
 st.title(get_page_title())
 
 # ========= GLOBAL SETTINGS =========
-norm = "div"
 norm_header = "Division"
 factor_col = "div_factor_perc"
 norm_pts_col = "div_pts_perc"
@@ -518,6 +535,20 @@ else:
         ),
         metric=history_metric,
         lock_y=True,
+    )
+
+# ========= MATCH POINTS / TIME HISTORY =========
+st.subheader(_("match_pts_time_history_header"))
+st.write(_("match_pts_time_history_text"))
+
+if history_df.empty:
+    st.warning(_("no_data"))
+else:
+    shooter_match_pts_time_history(
+        df=history_df,
+        shooter_name=selected_shooter,
+        show_ref=show_ref,
+        lock_y=False,
     )
 
 # ========= STAGE DISTRIBUTION =========

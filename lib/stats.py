@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from lib.utils import safe_numeric
 
 def aggregate_shooter_performance(
     df: pd.DataFrame,
@@ -314,3 +315,89 @@ def performance_class_from_pct(values):
         out[(s >= 0.00) & (s < 0.40)] = "D"
 
         return out
+    
+    
+def build_comparison_summary(
+    df: pd.DataFrame,
+    shooters: list[str],
+    standing_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if not shooters:
+        return pd.DataFrame()
+
+    required = {"shooter_name", "pts", "stg_max_pts", "time", "div_time_perc"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame()
+
+    tmp = df[df["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
+    if tmp.empty:
+        return pd.DataFrame()
+
+    numeric_cols = [
+        "pts",
+        "stg_max_pts",
+        "stg_match_pts",
+        "time",
+        "div_time_perc",
+        "a",
+        "c",
+        "d",
+        "ded",
+        "mi",
+        "ns",
+        "pe",
+        "ot",
+    ]
+    tmp = safe_numeric(tmp, numeric_cols)
+
+    agg_dict = {
+        "pts": "sum",
+        "stg_max_pts": "sum",
+        "time": "sum",
+        "div_time_perc": "mean",
+    }
+
+    if "stg_match_pts" in tmp.columns:
+        agg_dict["stg_match_pts"] = "sum"
+
+    for col in ["a", "c", "d", "ded", "mi", "ns", "pe", "ot"]:
+        if col in tmp.columns:
+            agg_dict[col] = "sum"
+
+    summary = (
+        tmp.groupby("shooter_name", as_index=False)
+        .agg(agg_dict)
+        .rename(
+            columns={
+                "pts": "total_pts",
+                "stg_max_pts": "total_stg_max_pts",
+                "stg_match_pts": "total_stg_match_pts",
+                "time": "total_time",
+            }
+        )
+    )
+
+    summary["points_pct"] = np.where(
+        summary["total_stg_max_pts"] > 0,
+        summary["total_pts"] / summary["total_stg_max_pts"],
+        np.nan,
+    )
+
+    if standing_df is not None and not standing_df.empty and "shooter_name" in standing_df.columns:
+        standing_cols = ["shooter_name"]
+        if "rank" in standing_df.columns:
+            standing_cols.append("rank")
+        if "pct" in standing_df.columns:
+            standing_cols.append("pct")
+
+        summary = summary.merge(
+            standing_df[standing_cols].drop_duplicates(subset=["shooter_name"]),
+            on="shooter_name",
+            how="left",
+        )
+
+    order_map = {name: i for i, name in enumerate(shooters)}
+    summary["sort_order"] = summary["shooter_name"].map(order_map)
+    summary = summary.sort_values("sort_order").drop(columns=["sort_order"])
+
+    return summary

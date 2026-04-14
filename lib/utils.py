@@ -15,7 +15,12 @@ def check_iqr(q1, q3, row):
         return True
     return False
 
-
+def safe_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
 
 def get_page_title():
     # Go one frame back in the call stack

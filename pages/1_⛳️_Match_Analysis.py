@@ -3,8 +3,8 @@ import pandas as pd
 import streamlit as st
 
 from lib.data import get_data
-from lib.stats import match_standing, stage_standing
-from lib.utils import get_page_title
+from lib.stats import match_standing, stage_standing, build_comparison_summary
+from lib.utils import get_page_title, safe_numeric
 from lib.charts import (
     stage_comparison_chart,
     comparison_spider_chart,
@@ -135,101 +135,6 @@ LANG = {
 def t(key: str, lang: str, **kwargs) -> str:
     base = LANG.get(lang, LANG["en"]).get(key, LANG["en"].get(key, key))
     return base.format(**kwargs) if kwargs else base
-
-
-# ========= HELPERS =========
-def safe_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    out = df.copy()
-    for col in cols:
-        if col in out.columns:
-            out[col] = pd.to_numeric(out[col], errors="coerce")
-    return out
-
-
-def build_comparison_summary(
-    df: pd.DataFrame,
-    shooters: list[str],
-    standing_df: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    if not shooters:
-        return pd.DataFrame()
-
-    required = {"shooter_name", "pts", "stg_max_pts", "time", "div_time_perc"}
-    if not required.issubset(df.columns):
-        return pd.DataFrame()
-
-    tmp = df[df["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
-    if tmp.empty:
-        return pd.DataFrame()
-
-    numeric_cols = [
-        "pts",
-        "stg_max_pts",
-        "stg_match_pts",
-        "time",
-        "div_time_perc",
-        "a",
-        "c",
-        "d",
-        "ded",
-        "mi",
-        "ns",
-        "pe",
-        "ot",
-    ]
-    tmp = safe_numeric(tmp, numeric_cols)
-
-    agg_dict = {
-        "pts": "sum",
-        "stg_max_pts": "sum",
-        "time": "sum",
-        "div_time_perc": "mean",
-    }
-
-    if "stg_match_pts" in tmp.columns:
-        agg_dict["stg_match_pts"] = "sum"
-
-    for col in ["a", "c", "d", "ded", "mi", "ns", "pe", "ot"]:
-        if col in tmp.columns:
-            agg_dict[col] = "sum"
-
-    summary = (
-        tmp.groupby("shooter_name", as_index=False)
-        .agg(agg_dict)
-        .rename(
-            columns={
-                "pts": "total_pts",
-                "stg_max_pts": "total_stg_max_pts",
-                "stg_match_pts": "total_stg_match_pts",
-                "time": "total_time",
-            }
-        )
-    )
-
-    summary["points_pct"] = np.where(
-        summary["total_stg_max_pts"] > 0,
-        summary["total_pts"] / summary["total_stg_max_pts"],
-        np.nan,
-    )
-
-    if standing_df is not None and not standing_df.empty and "shooter_name" in standing_df.columns:
-        standing_cols = ["shooter_name"]
-        if "rank" in standing_df.columns:
-            standing_cols.append("rank")
-        if "pct" in standing_df.columns:
-            standing_cols.append("pct")
-
-        summary = summary.merge(
-            standing_df[standing_cols].drop_duplicates(subset=["shooter_name"]),
-            on="shooter_name",
-            how="left",
-        )
-
-    order_map = {name: i for i, name in enumerate(shooters)}
-    summary["sort_order"] = summary["shooter_name"].map(order_map)
-    summary = summary.sort_values("sort_order").drop(columns=["sort_order"])
-
-    return summary
 
 
 # ========= SIDEBAR: LANGUAGE =========

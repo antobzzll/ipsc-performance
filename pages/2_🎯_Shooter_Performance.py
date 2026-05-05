@@ -134,7 +134,7 @@ LANG = {
             "mentre una linea collega le mediane dei match per evidenziare l’andamento nel tempo. "
             "Infine, la lettera posta in ogni box rappresenta la classe di performance per quella gara, calcolata in base alla percentuale media di risultati.\n\n"
         ),
-        "stage_points_time_header": "Punti di Stage e Tempo",
+        "stage_points_time_header": "Rapporto tra Punti di Stage e Tempo",
         "stage_points_time_text": (
             "Questo grafico mostra i tuoi risultati per singolo stage (percentuale di punti ottenuti vs. percentuale di tempo rispetto alla divisione). "
             "Ogni un rombo corrisponde alla performance media tra punti e tempo per ogni gara selezionata, mentre ogni punto rappresenta uno stage, colorato in base alla relativa competizione. "

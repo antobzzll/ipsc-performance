@@ -1814,3 +1814,280 @@ def shooter_match_pts_time_history(
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+
+def multi_shooter_trend(
+    df: pd.DataFrame,
+    shooters: list[str],
+    metric_col: str,
+    y_title: str,
+    *,
+    agg: str = "mean",
+    show_ref: bool = True,
+    ref_val: float = 0.5,
+    tickformat: str = ".0%",
+    show_legend: bool = True,
+    color_map: dict[str, str] | None = None,
+    empty_message: str = "No data for the selected filters.",
+    select_message: str = "Select at least one shooter.",
+):
+    """
+    Line chart: one line per shooter, x = matches sorted by date,
+    y = agg(metric_col) per match. Supports up to any number of shooters.
+    """
+    if not shooters:
+        st.info(select_message)
+        return
+
+    needed = {"shooter_name", "match_name", metric_col}
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.info(f"Missing columns: {missing}")
+        return
+
+    sdf = df[df["shooter_name"].isin(shooters)].copy()
+    sdf[metric_col] = pd.to_numeric(sdf[metric_col], errors="coerce")
+
+    if sdf.empty:
+        st.info(empty_message)
+        return
+
+    has_date = "match_date" in sdf.columns
+    if has_date:
+        sdf["match_date"] = pd.to_datetime(sdf["match_date"], errors="coerce")
+
+    group_cols = ["shooter_name", "match_name"] + (["match_date"] if has_date else [])
+
+    plot_df = (
+        sdf.groupby(group_cols, dropna=False)[metric_col]
+        .agg(agg)
+        .reset_index()
+        .rename(columns={metric_col: "metric_value"})
+    )
+
+    if has_date:
+        plot_df = plot_df.sort_values(["match_date", "match_name"])
+        match_order = (
+            plot_df[["match_name", "match_date"]]
+            .drop_duplicates()
+            .sort_values(["match_date", "match_name"])["match_name"]
+            .astype(str)
+            .tolist()
+        )
+    else:
+        plot_df = plot_df.sort_values("match_name")
+        match_order = (
+            plot_df[["match_name"]]
+            .drop_duplicates()
+            .sort_values("match_name")["match_name"]
+            .astype(str)
+            .tolist()
+        )
+
+    plot_df["match_label"] = plot_df["match_name"].astype(str)
+
+    if color_map is None:
+        color_map = get_shooter_color_map(shooters)
+
+    fig = go.Figure()
+
+    for shooter in shooters:
+        sh_df = plot_df[plot_df["shooter_name"] == shooter].copy()
+        if sh_df.empty:
+            continue
+
+        if has_date:
+            customdata = sh_df["match_date"].dt.strftime("%Y-%m-%d").fillna("").to_numpy().reshape(-1, 1)
+            hover = (
+                "Match: %{x}<br>"
+                "Date: %{customdata[0]}<br>"
+                f"Value: %{{y:{tickformat}}}<extra>%{{fullData.name}}</extra>"
+            )
+        else:
+            customdata = None
+            hover = f"Match: %{{x}}<br>Value: %{{y:{tickformat}}}<extra>%{{fullData.name}}</extra>"
+
+        trace_kwargs = dict(
+            x=sh_df["match_label"],
+            y=sh_df["metric_value"],
+            mode="lines+markers",
+            name=shooter,
+            line=dict(color=color_map.get(shooter), width=2),
+            marker=dict(color=color_map.get(shooter), size=7),
+            hovertemplate=hover,
+        )
+        if customdata is not None:
+            trace_kwargs["customdata"] = customdata
+
+        fig.add_trace(go.Scatter(**trace_kwargs))
+
+    if show_ref:
+        fig.add_hline(
+            y=ref_val,
+            line_dash="dash",
+            line_color="gray",
+            line_width=2,
+            annotation_text=f"{ref_val:.0%}",
+            annotation_position="top left",
+        )
+
+    fig.update_layout(
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(
+            title="Match",
+            tickangle=45,
+            categoryorder="array",
+            categoryarray=match_order,
+        ),
+        yaxis=dict(
+            title=y_title,
+            tickformat=tickformat,
+            showgrid=True,
+            gridcolor="lightgray",
+        ),
+        showlegend=show_legend,
+        legend=dict(title=""),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def multi_shooter_match_pct(
+    df: pd.DataFrame,
+    shooters: list[str],
+    shooter_div: str,
+    *,
+    metric: str = "pct",   # "pct" or "rank"
+    show_ref: bool = True,
+    color_map: dict[str, str] | None = None,
+    empty_message: str = "No data for the selected filters.",
+    select_message: str = "Select at least one shooter.",
+):
+    """
+    Match-level results over time for multiple shooters.
+    metric="pct"  → division % vs. winner's total points
+    metric="rank" → overall division standing (y-axis reversed)
+    Computes match_standing per match to get both values.
+    """
+    from lib.stats import match_standing
+
+    if not shooters:
+        st.info(select_message)
+        return
+
+    needed = {"match_name", "match_date", "shooter_name", "shooter_div", "stg_match_pts"}
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        st.info(f"Missing columns for match results chart: {missing}")
+        return
+
+    work = df[df["shooter_div"].astype(str) == str(shooter_div)].copy()
+    work["match_date"] = pd.to_datetime(work["match_date"], errors="coerce")
+    work["stg_match_pts"] = pd.to_numeric(work["stg_match_pts"], errors="coerce")
+
+    if work.empty:
+        st.info(empty_message)
+        return
+
+    matches = (
+        work[["match_name", "match_date"]]
+        .drop_duplicates()
+        .sort_values("match_date")
+        .reset_index(drop=True)
+    )
+
+    rows = []
+    for _, r in matches.iterrows():
+        standing = match_standing(work, match=r["match_name"], shooter_div=shooter_div)
+        if standing.empty:
+            continue
+        for shooter in shooters:
+            s_rows = standing[standing["shooter_name"] == shooter]
+            if s_rows.empty:
+                continue
+            s = s_rows.iloc[0]
+            rows.append({
+                "match_name": r["match_name"],
+                "match_date": r["match_date"],
+                "shooter_name": shooter,
+                "pct": pd.to_numeric(s["pct"], errors="coerce"),
+                "rank": pd.to_numeric(s["rank"], errors="coerce"),
+            })
+
+    if not rows:
+        st.info(empty_message)
+        return
+
+    plot_df = pd.DataFrame(rows).sort_values("match_date")
+    plot_df["match_label"] = plot_df["match_name"].astype(str)
+
+    match_order = (
+        plot_df[["match_name", "match_date", "match_label"]]
+        .drop_duplicates()
+        .sort_values(["match_date", "match_name"])["match_label"]
+        .tolist()
+    )
+
+    if color_map is None:
+        color_map = get_shooter_color_map(shooters)
+
+    is_rank = metric == "rank"
+    y_col = "rank" if is_rank else "pct"
+    y_title = "Division Rank" if is_rank else "Division %"
+    hover_y = "Rank: %{y:.0f}" if is_rank else "Division %: %{y:.1%}"
+
+    fig = go.Figure()
+
+    for shooter in shooters:
+        sh_df = plot_df[plot_df["shooter_name"] == shooter].copy()
+        if sh_df.empty:
+            continue
+
+        fig.add_trace(go.Scatter(
+            x=sh_df["match_label"],
+            y=sh_df[y_col],
+            mode="lines+markers",
+            name=shooter,
+            line=dict(color=color_map.get(shooter), width=2),
+            marker=dict(color=color_map.get(shooter), size=7),
+            customdata=sh_df["match_date"].dt.strftime("%Y-%m-%d").fillna("").to_numpy().reshape(-1, 1),
+            hovertemplate=(
+                "Match: %{x}<br>"
+                "Date: %{customdata[0]}<br>"
+                f"{hover_y}<extra>%{{fullData.name}}</extra>"
+            ),
+        ))
+
+    if show_ref and not is_rank:
+        fig.add_hline(
+            y=0.5,
+            line_dash="dash",
+            line_color="gray",
+            line_width=2,
+            annotation_text="50%",
+            annotation_position="top left",
+        )
+
+    yaxis_cfg = dict(showgrid=True, gridcolor="lightgray", title=y_title)
+    if is_rank:
+        yaxis_cfg["autorange"] = "reversed"
+    else:
+        yaxis_cfg["tickformat"] = ".0%"
+
+    fig.update_layout(
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(
+            title="Match",
+            tickangle=45,
+            categoryorder="array",
+            categoryarray=match_order,
+        ),
+        yaxis=yaxis_cfg,
+        legend=dict(title=""),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)

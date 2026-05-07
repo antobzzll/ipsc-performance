@@ -120,6 +120,10 @@ def t(key: str, lang: str) -> str:
 
 _ = lambda k: t(k, st.session_state.language)
 
+logo_c1, logo_c2, _spacer = st.columns([1, 1, 4], vertical_alignment="center")
+logo_c1.image("assets/ipsc-seeklogo.png", width=120)
+logo_c2.image("assets/FITDS-logo-1.png", width=120)
+
 st.title(_("title"))
 st.write(_("subtitle"))
 st.info(_("nav_hint"))

@@ -44,9 +44,6 @@ selected_lang = st.sidebar.selectbox(
 )
 st.session_state.language = selected_lang
 
-st.sidebar.image("assets/ipsc-seeklogo.png")
-st.sidebar.image("assets/FITDS-logo-1.png")
-
 # ========= NAVIGATION =========
 lang = st.session_state.language
 

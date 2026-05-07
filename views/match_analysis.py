@@ -4,18 +4,17 @@ import streamlit as st
 
 from lib.data import get_data
 from lib.stats import match_standing, stage_standing, build_comparison_summary
-from lib.utils import get_page_title, safe_numeric
+from lib.utils import safe_numeric
 from lib.charts import (
     stage_comparison_chart,
     comparison_spider_chart,
     hit_profile_bar_chart,
 )
 
-st.set_page_config(page_title="Match Analysis", layout="wide")
-
 # ========= I18N =========
 LANG = {
     "en": {
+        "page_title": "⛳️ Match Analysis",
         "select_language": "Language",
         "filters_header": "Filters",
         "data_header_help": "Affect all tables and metrics on this page",
@@ -73,6 +72,7 @@ LANG = {
         "summary_div_time_pct": "Division Time %",
     },
     "it": {
+        "page_title": "⛳️ Analisi Match",
         "select_language": "Lingua",
         "filters_header": "Filtri",
         "data_header_help": "Influenza tutte le tabelle e metriche di questa pagina",
@@ -137,18 +137,6 @@ def t(key: str, lang: str, **kwargs) -> str:
     return base.format(**kwargs) if kwargs else base
 
 
-# ========= SIDEBAR: LANGUAGE =========
-if "language" not in st.session_state:
-    st.session_state.language = "it"
-
-language_options = list(LANG.keys())
-language = st.sidebar.selectbox(
-    t("select_language", st.session_state.language),
-    options=language_options,
-    index=language_options.index(st.session_state.language),
-    key="dd_language_match_analysis",
-)
-st.session_state.language = language
 _ = lambda k, **kw: t(k, st.session_state.language, **kw)
 
 # ========= DATA =========
@@ -191,7 +179,7 @@ df = safe_numeric(
     ],
 )
 
-st.title(get_page_title())
+st.title(_("page_title"))
 
 # ========= FILTERS =========
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))

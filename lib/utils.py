@@ -1,7 +1,5 @@
 import numpy as np
 import pandas as pd
-import inspect
-import os
 import streamlit as st
 def q_stats(series):
     """Return the interquartile range (IQR) and median of a pandas Series or numpy array."""
@@ -21,14 +19,6 @@ def safe_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     return out
-
-def get_page_title():
-    # Go one frame back in the call stack
-    frame = inspect.stack()[1]
-    caller_file = frame.filename   # full path of the caller
-    filename = os.path.basename(caller_file)  # just the file name
-    page_title = filename.split('_', 1)[1] if '_' in filename else filename
-    return page_title.replace('_', ' ').replace('.py', '')
 
 def init_global_select(key: str, options: list[str], default: str):
     """Initialize a global select value once, and keep it valid if options change."""

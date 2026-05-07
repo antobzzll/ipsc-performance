@@ -3,7 +3,6 @@ import pandas as pd
 import streamlit as st
 
 from lib.data import get_data
-from lib.utils import get_page_title
 from lib.stats import comparison_dashboard_stats
 from lib.charts import (
     stage_distr,
@@ -12,11 +11,10 @@ from lib.charts import (
     shooter_match_pts_time_history,
 )
 
-st.set_page_config(page_title="Shooter Performance", layout="wide")
-
 # ========= I18N =========
 LANG = {
     "en": {
+        "page_title": "🎯 Shooter Performance",
         "select_language": "Language",
         "data_header_help": "Affect all charts on this page",
         "filters_header": "Filters",
@@ -92,6 +90,7 @@ LANG = {
         "centroid_size_help": "Size of match centroids on scatter chart",
     },
     "it": {
+        "page_title": "🎯 Prestazioni Tiratore",
         "select_language": "Lingua",
         "data_header_help": "Influenza tutti i grafici di questa pagina",
         "filters_header": "Filtri",
@@ -260,22 +259,13 @@ for key, value in SESSION_DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# ========= SIDEBAR: LANGUAGE =========
-language_options = list(LANG.keys())
-language = st.sidebar.selectbox(
-    t("select_language", st.session_state.language),
-    options=language_options,
-    index=language_options.index(st.session_state.language),
-    key="dd_language",
-)
-st.session_state.language = language
 _ = lambda k, **kw: t(k, st.session_state.language, **kw)
 
 # ========= DATA =========
 stages = prepare_stages_df(get_data("fitds_stages"))
 
 # ========= PAGE TITLE =========
-st.title(get_page_title())
+st.title(_("page_title"))
 
 # ========= GLOBAL SETTINGS =========
 norm_pts_col = "div_pts_perc"

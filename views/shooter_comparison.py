@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.data import get_data
-from lib.utils import get_page_title, safe_numeric
+from lib.utils import safe_numeric
 from lib.stats import comparison_dashboard_stats
 from lib.charts import (
     get_shooter_color_map,
@@ -11,11 +11,10 @@ from lib.charts import (
     multi_shooter_trend,
 )
 
-st.set_page_config(page_title="Shooter Comparison", layout="wide")
-
 # ========= I18N =========
 LANG = {
     "en": {
+        "page_title": "🏆 Shooter Comparison",
         "select_language": "Language",
         "filters_header": "Filters",
         "data_header_help": "Affect all charts on this page",
@@ -70,6 +69,7 @@ LANG = {
         ),
     },
     "it": {
+        "page_title": "🏆 Confronto Tiratori",
         "select_language": "Lingua",
         "filters_header": "Filtri",
         "data_header_help": "Influenza tutti i grafici di questa pagina",
@@ -153,25 +153,12 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-# ========= SESSION STATE =========
-if "language" not in st.session_state:
-    st.session_state.language = "it"
-
-# ========= SIDEBAR: LANGUAGE =========
-language_options = list(LANG.keys())
-language = st.sidebar.selectbox(
-    t("select_language", st.session_state.language),
-    options=language_options,
-    index=language_options.index(st.session_state.language),
-    key="dd_language_comparison",
-)
-st.session_state.language = language
 _ = lambda k, **kw: t(k, st.session_state.language, **kw)
 
 # ========= DATA =========
 stages = _prepare(get_data("fitds_stages"))
 
-st.title(get_page_title())
+st.title(_("page_title"))
 
 # ========= SIDEBAR FILTERS =========
 st.sidebar.header(_("filters_header"), help=_("data_header_help"))

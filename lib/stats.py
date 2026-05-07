@@ -401,3 +401,80 @@ def build_comparison_summary(
     summary = summary.sort_values("sort_order").drop(columns=["sort_order"])
 
     return summary
+
+
+def comparison_dashboard_stats(
+    df: pd.DataFrame,
+    shooters: list[str],
+    shooter_div: str,
+) -> pd.DataFrame:
+    """
+    Per-shooter aggregated metrics across the filtered matches:
+    - mean_result: mean of match-level division % (winner-relative) across matches
+    - mean_pts_pct: mean of stage points obtained / stage max points (pts / stg_max_pts)
+    - mean_time_pct: mean of stage div_time_perc
+    """
+    cols = ["shooter_name", "mean_result", "mean_pts_pct", "mean_time_pct"]
+    if not shooters:
+        return pd.DataFrame(columns=cols)
+
+    needed = {"match_name", "shooter_div", "shooter_name", "stg_match_pts"}
+    if not needed.issubset(df.columns):
+        return pd.DataFrame(columns=cols)
+
+    work = df[df["shooter_div"].astype(str) == str(shooter_div)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    work = safe_numeric(work, ["stg_match_pts", "div_pts_perc", "div_time_perc"])
+
+    matches = work["match_name"].dropna().astype(str).unique().tolist()
+
+    result_rows = []
+    for m in matches:
+        standing = match_standing(work, match=m, shooter_div=shooter_div)
+        if standing.empty:
+            continue
+        for shooter in shooters:
+            s_rows = standing[standing["shooter_name"] == shooter]
+            if s_rows.empty:
+                continue
+            pct = pd.to_numeric(s_rows.iloc[0]["pct"], errors="coerce")
+            result_rows.append({"shooter_name": shooter, "pct": pct})
+
+    if result_rows:
+        mean_result = (
+            pd.DataFrame(result_rows)
+            .groupby("shooter_name", as_index=False)["pct"]
+            .mean()
+            .rename(columns={"pct": "mean_result"})
+        )
+    else:
+        mean_result = pd.DataFrame(columns=["shooter_name", "mean_result"])
+
+    sel = work[work["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
+    sel = safe_numeric(sel, ["pts", "stg_max_pts"])
+    if {"pts", "stg_max_pts"}.issubset(sel.columns):
+        sel["stage_pts_pct"] = np.where(
+            sel["stg_max_pts"] > 0,
+            sel["pts"] / sel["stg_max_pts"],
+            np.nan,
+        )
+    else:
+        sel["stage_pts_pct"] = np.nan
+    if "div_time_perc" not in sel.columns:
+        sel["div_time_perc"] = np.nan
+    stage_means = (
+        sel.groupby("shooter_name", as_index=False)
+        .agg(mean_pts_pct=("stage_pts_pct", "mean"), mean_time_pct=("div_time_perc", "mean"))
+    )
+
+    out = pd.DataFrame({"shooter_name": shooters})
+    out = out.merge(mean_result, on="shooter_name", how="left")
+    out = out.merge(stage_means, on="shooter_name", how="left")
+
+    order_map = {name: i for i, name in enumerate(shooters)}
+    out["sort_order"] = out["shooter_name"].map(order_map)
+    out = out.sort_values("sort_order").drop(columns=["sort_order"]).reset_index(drop=True)
+
+    return out[cols]

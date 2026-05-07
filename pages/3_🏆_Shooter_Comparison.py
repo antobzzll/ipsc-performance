@@ -4,6 +4,7 @@ import streamlit as st
 
 from lib.data import get_data
 from lib.utils import get_page_title, safe_numeric
+from lib.stats import comparison_dashboard_stats
 from lib.charts import (
     get_shooter_color_map,
     multi_shooter_match_pct,
@@ -41,6 +42,14 @@ LANG = {
         "shooter_help": "Select a shooter",
         "shooter_placeholder": "-- Select shooter --",
         "select_shooters_first": "Select at least one shooter to display the comparison.",
+        "dashboard_header": "Aggregated Metrics",
+        "dashboard_text": "Mean values across the selected matches.",
+        "metric_mean_result": "Mean result",
+        "metric_mean_result_help": "Mean of match-level division % across selected matches",
+        "metric_mean_pts": "% pts",
+        "metric_mean_pts_help": "Mean stage points obtained / available (pts / stage max pts)",
+        "metric_mean_time": "% time",
+        "metric_mean_time_help": "Mean stage division time %",
         "match_results_header": "Match Results",
         "match_results_text": (
             "Division percentage over time: each shooter's final score as a fraction "
@@ -87,6 +96,14 @@ LANG = {
         "shooter_help": "Seleziona un tiratore",
         "shooter_placeholder": "-- Seleziona tiratore --",
         "select_shooters_first": "Seleziona almeno un tiratore per visualizzare il confronto.",
+        "dashboard_header": "Metriche Aggregate",
+        "dashboard_text": "Valori medi sui match selezionati.",
+        "metric_mean_result": "Risultato medio",
+        "metric_mean_result_help": "Media della % di divisione a livello match sui match selezionati",
+        "metric_mean_pts": "% punti",
+        "metric_mean_pts_help": "Media % punti stage ottenuti / disponibili (pts / max pts stage)",
+        "metric_mean_time": "% tempo",
+        "metric_mean_time_help": "Media % tempo di divisione per stage",
         "match_results_header": "Risultati Match",
         "match_results_text": (
             "Risultato di gara nel tempo: punteggio % finale di ogni tiratore "
@@ -299,6 +316,41 @@ if not selected_shooters:
     st.stop()
 
 color_map = get_shooter_color_map(selected_shooters)
+
+st.write("---")
+
+# ========= DASHBOARD: MEAN METRICS =========
+st.subheader(_("dashboard_header"))
+st.write(_("dashboard_text"))
+
+dashboard_df = comparison_dashboard_stats(
+    df, shooters=selected_shooters, shooter_div=selected_division
+)
+
+
+def _fmt_pct(v) -> str:
+    return "-" if pd.isna(v) else f"{v * 100:.1f}%"
+
+
+dash_cols = st.columns(len(selected_shooters))
+for shooter, col in zip(selected_shooters, dash_cols):
+    row = dashboard_df[dashboard_df["shooter_name"] == shooter]
+    mean_result = row["mean_result"].iloc[0] if not row.empty else np.nan
+    mean_pts = row["mean_pts_pct"].iloc[0] if not row.empty else np.nan
+    mean_time = row["mean_time_pct"].iloc[0] if not row.empty else np.nan
+    color = color_map.get(shooter, "#444")
+
+    with col:
+        st.markdown(
+            f"<div style='font-weight:600;color:{color};font-size:1.05rem;"
+            f"border-left:4px solid {color};padding-left:8px;margin-bottom:6px;'>"
+            f"{shooter}</div>",
+            unsafe_allow_html=True,
+        )
+        m1, m2, m3 = st.columns(3)
+        m1.metric(_("metric_mean_result"), _fmt_pct(mean_result), help=_("metric_mean_result_help"))
+        m2.metric(_("metric_mean_pts"), _fmt_pct(mean_pts), help=_("metric_mean_pts_help"))
+        m3.metric(_("metric_mean_time"), _fmt_pct(mean_time), help=_("metric_mean_time_help"))
 
 st.write("---")
 

@@ -411,8 +411,11 @@ def comparison_dashboard_stats(
     """
     Per-shooter aggregated metrics across the filtered matches:
     - mean_result: mean of match-level division % (winner-relative) across matches
-    - mean_pts_pct: mean of stage points obtained / stage max points (pts / stg_max_pts)
+    - mean_pts_pct: sum(pts) / sum(stg_max_pts) across selected stages
     - mean_time_pct: mean of stage div_time_perc
+
+    `df` must contain the full division context (all shooters), since match_standing
+    needs the winner to compute match-level division %.
     """
     cols = ["shooter_name", "mean_result", "mean_pts_pct", "mean_time_pct"]
     if not shooters:
@@ -454,19 +457,29 @@ def comparison_dashboard_stats(
 
     sel = work[work["shooter_name"].astype(str).isin([str(s) for s in shooters])].copy()
     sel = safe_numeric(sel, ["pts", "stg_max_pts"])
-    if {"pts", "stg_max_pts"}.issubset(sel.columns):
-        sel["stage_pts_pct"] = np.where(
-            sel["stg_max_pts"] > 0,
-            sel["pts"] / sel["stg_max_pts"],
-            np.nan,
-        )
-    else:
-        sel["stage_pts_pct"] = np.nan
     if "div_time_perc" not in sel.columns:
         sel["div_time_perc"] = np.nan
-    stage_means = (
+    if "pts" not in sel.columns:
+        sel["pts"] = np.nan
+    if "stg_max_pts" not in sel.columns:
+        sel["stg_max_pts"] = np.nan
+
+    pts_sums = (
+        sel.groupby("shooter_name", as_index=False)[["pts", "stg_max_pts"]]
+        .sum(min_count=1)
+    )
+    pts_sums["mean_pts_pct"] = np.where(
+        pts_sums["stg_max_pts"] > 0,
+        pts_sums["pts"] / pts_sums["stg_max_pts"],
+        np.nan,
+    )
+
+    time_means = (
         sel.groupby("shooter_name", as_index=False)
-        .agg(mean_pts_pct=("stage_pts_pct", "mean"), mean_time_pct=("div_time_perc", "mean"))
+        .agg(mean_time_pct=("div_time_perc", "mean"))
+    )
+    stage_means = pts_sums[["shooter_name", "mean_pts_pct"]].merge(
+        time_means, on="shooter_name", how="outer"
     )
 
     out = pd.DataFrame({"shooter_name": shooters})

@@ -4,6 +4,7 @@ import streamlit as st
 
 from lib.data import get_data
 from lib.utils import get_page_title
+from lib.stats import comparison_dashboard_stats
 from lib.charts import (
     stage_distr,
     stage_scatter,
@@ -22,14 +23,12 @@ LANG = {
         "shooter": "Shooter",
         "shooter_help": "Select shooter to analyze",
         "select_shooter_first": "Select a shooter to display the analysis.",
-        "avg_performance": "AVG {scope} Performance",
-        "avg_stage_pts_pct": "AVG {scope} Stage Points %",
-        "avg_stage_pts_pct_true": "AVG Absolute Stage Points %",
-        "avg_stage_time_pct": "AVG {scope} Stage Time %",
-        "avg_performance_help": "Average of normalized hit factor percentage across the selected stages and matches",
-        "avg_stage_pts_pct_help": "Average of normalized stage points percentage across the selected stages and matches",
-        "avg_stage_pts_pct_true_help": "Average of absolute stage points percentage across the selected stages and matches",
-        "avg_stage_time_pct_help": "Average of normalized stage time percentage across the selected stages and matches",
+        "metric_mean_result": "Mean result",
+        "metric_mean_result_help": "Mean of match-level division % (winner-relative) across selected matches",
+        "metric_mean_pts": "% pts",
+        "metric_mean_pts_help": "Sum of stage points obtained / sum of available points across selected stages",
+        "metric_mean_time": "% time",
+        "metric_mean_time_help": "Mean stage division time % across selected stages",
         "division": "Division",
         "division_help": "Filter by division (e.g., Production / Open / Standard)",
         "power_factor": "Power Factor",
@@ -99,14 +98,12 @@ LANG = {
         "shooter": "Tiratore",
         "shooter_help": "Seleziona il tiratore da analizzare",
         "select_shooter_first": "Seleziona un tiratore per visualizzare l’analisi.",
-        "avg_performance": "Media Prestazioni {scope}",
-        "avg_stage_pts_pct": "Media % Punti Stage {scope}",
-        "avg_stage_pts_pct_true": "Media % Punti Stage Assoluti",
-        "avg_stage_time_pct": "Media % Tempo Stage {scope}",
-        "avg_performance_help": "Media della percentuale normalizzata di hit factor sugli stage e match selezionati",
-        "avg_stage_pts_pct_help": "Media della percentuale normalizzata di punti stage sugli stage e match selezionati",
-        "avg_stage_pts_pct_true_help": "Media della percentuale assoluta di punti stage sugli stage e match selezionati",
-        "avg_stage_time_pct_help": "Media della percentuale normalizzata di tempo stage sugli stage e match selezionati",
+        "metric_mean_result": "Risultato medio",
+        "metric_mean_result_help": "Media della % di divisione a livello match (vs vincitore) sui match selezionati",
+        "metric_mean_pts": "% punti",
+        "metric_mean_pts_help": "Somma punti stage ottenuti / somma punti disponibili sugli stage selezionati",
+        "metric_mean_time": "% tempo",
+        "metric_mean_time_help": "Media % tempo stage di divisione sugli stage selezionati",
         "division": "Divisione",
         "division_help": "Filtra per divisione (es. Production / Open / Standard)",
         "power_factor": "Power Factor",
@@ -219,15 +216,6 @@ def prepare_stages_df(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def mean_metric(df: pd.DataFrame, col: str) -> float:
-    if col not in df.columns:
-        return np.nan
-    s = pd.to_numeric(df[col], errors="coerce").dropna()
-    if s.empty:
-        return np.nan
-    return s.mean()
-
-
 def merge_stage_predictions(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     preds = get_data("class_predict_per_stage").copy()
@@ -290,10 +278,7 @@ stages = prepare_stages_df(get_data("fitds_stages"))
 st.title(get_page_title())
 
 # ========= GLOBAL SETTINGS =========
-norm_header = "Division"
-factor_col = "div_factor_perc"
 norm_pts_col = "div_pts_perc"
-time_col = "div_time_perc"
 chart_norm = "div"
 
 # ========= SIDEBAR GLOBAL OPTIONS =========
@@ -449,31 +434,45 @@ if df.empty:
 
 stage_class_preds = merge_stage_predictions(df)
 
-# ========= DERIVED SETTINGS =========
-true_points_default = st.session_state.dd_true_pts
-pts_col = "pts_pct" if true_points_default else norm_pts_col
-
 # ========= TOP METRICS =========
-avg_factor = mean_metric(df, factor_col)
-avg_pts = mean_metric(df, pts_col)
-avg_time = mean_metric(df, time_col)
+match_context = stages.copy()
+if shooter_div_filter and "shooter_div" in match_context.columns:
+    match_context = match_context[match_context["shooter_div"].isin(shooter_div_filter)]
+if div_filter and "div" in match_context.columns:
+    match_context = match_context[match_context["div"] == div_filter]
+if power_factor_filter and "power_factor" in match_context.columns:
+    match_context = match_context[match_context["power_factor"] == power_factor_filter]
+if year_filter and "match_year" in match_context.columns:
+    match_context = match_context[match_context["match_year"].isin(year_filter)]
+if championship_filter and "championship" in match_context.columns:
+    match_context = match_context[match_context["championship"].astype(str).isin(championship_filter)]
+if match_level_filter and "match_level" in match_context.columns:
+    match_context = match_context[match_context["match_level"].isin(match_level_filter)]
+if match_filter:
+    match_context = match_context[match_context["match_name"].isin(match_filter)]
+
+dash_div = div_filter or (df["shooter_div"].dropna().iloc[0] if "shooter_div" in df.columns and not df["shooter_div"].dropna().empty else None)
+dash_row = comparison_dashboard_stats(match_context, [selected_shooter], dash_div) if dash_div else pd.DataFrame()
+mean_result = dash_row["mean_result"].iloc[0] if not dash_row.empty else np.nan
+mean_pts = dash_row["mean_pts_pct"].iloc[0] if not dash_row.empty else np.nan
+mean_time = dash_row["mean_time_pct"].iloc[0] if not dash_row.empty else np.nan
 
 top_c2.metric(
-    _("avg_performance", scope=norm_header),
-    f"{avg_factor:.0%}" if pd.notna(avg_factor) else "—",
-    help=_("avg_performance_help"),
+    _("metric_mean_result"),
+    f"{mean_result:.1%}" if pd.notna(mean_result) else "—",
+    help=_("metric_mean_result_help"),
 )
 
 top_c3.metric(
-    _("avg_stage_pts_pct_true") if true_points_default else _("avg_stage_pts_pct", scope=norm_header),
-    f"{avg_pts:.0%}" if pd.notna(avg_pts) else "—",
-    help=_("avg_stage_pts_pct_true_help") if true_points_default else _("avg_stage_pts_pct_help"),
+    _("metric_mean_pts"),
+    f"{mean_pts:.1%}" if pd.notna(mean_pts) else "—",
+    help=_("metric_mean_pts_help"),
 )
 
 top_c4.metric(
-    _("avg_stage_time_pct", scope=norm_header),
-    f"{avg_time:.0%}" if pd.notna(avg_time) else "—",
-    help=_("avg_stage_time_pct_help"),
+    _("metric_mean_time"),
+    f"{mean_time:.1%}" if pd.notna(mean_time) else "—",
+    help=_("metric_mean_time_help"),
 )
 
 st.write("---")
